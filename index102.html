@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ระบบจัดการโครงการ - CPF (v2.2)</title>
+    <title>ระบบจัดการโครงการ - CPF (v2.3)</title>
     
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -14,7 +14,7 @@
 <body>
     <header>
         <h1>ระบบจัดการโครงการ</h1>
-        <p>Construction Project Dashboard — CPF (v2.2)</p>
+        <p>Construction Project Dashboard — CPF (v2.3)</p>
     </header>
 
     <main>
@@ -22,28 +22,33 @@
         <div id="loading" class="loading">กำลังประมวลผล...</div>
 
         <div class="header-controls">
-    <div>
-        <label style="margin-right: 0.5rem;">มุมมอง:</label>
-        <select id="roleSelect" onchange="window.App.changeRole(this.value)">
-            <option value="admin">แอดมิน</option>
-            <option value="survey">ทีมสำรวจโครงการ</option>
-            <option value="design">ทีมออกแบบ</option>
-            <option value="bidding">ทีมประมูล</option>
-            <option value="pm">ทีมบริหารโครงการ</option>
-        </select>
-    </div>
-    
-    <div id="addBtnContainer">
-        <button class="btn btn-gold" onclick="window.App.toggleForm()" id="addBtn">เพิ่มโครงการใหม่</button>
-    </div>
-</div>
+            <div>
+                <label style="margin-right: 0.5rem;">มุมมอง:</label>
+                <select id="roleSelect" onchange="window.App.changeRole(this.value)">
+                    <option value="admin">แอดมิน</option>
+                    <option value="survey">ทีมสำรวจโครงการ</option>
+                    <option value="design">ทีมออกแบบ</option>
+                    <option value="bidding">ทีมประมูล</option>
+                    <option value="pm">ทีมบริหารโครงการ</option>
+                </select>
+            </div>
+            
+            <div id="addBtnContainer">
+                <button class="btn btn-gold" onclick="window.App.toggleForm()" id="addBtn">เพิ่มโครงการใหม่</button>
+            </div>
+        </div>
 
         <div id="formContainer" class="form-container" style="display:none;">
             <h2 id="formTitle">เพิ่มโครงการใหม่</h2>
             <div class="form-grid" id="formFields"></div>
+            
             <div style="display:flex; gap:0.75rem; margin-top:2rem;">
+                <button id="forwardBtn" class="btn btn-gold" onclick="window.App.forwardProject()" style="flex:1; display:none;">บันทึกและส่งต่อ</button>
+                
                 <button id="completeBtn" class="btn btn-gold" onclick="window.App.completeProject()" style="flex:1; display:none;">เสร็จสิ้นโครงการ</button>
-                <button id="saveBtn" class="btn btn-simple-action" onclick="window.App.saveProject()" style="flex:1;">บันทึก</button>
+                
+                <button id="saveBtn" class="btn btn-simple-action" onclick="window.App.saveProject()" style="flex:1;">บันทึก (ยังไม่ส่ง)</button>
+                
                 <button class="btn btn-gray" onclick="window.App.toggleForm(null, true)" style="flex:1;">ยกเลิก</button>
             </div>
         </div>
