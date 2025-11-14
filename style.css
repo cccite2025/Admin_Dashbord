@@ -65,13 +65,17 @@ main { max-width: 1280px; margin: 0 auto; padding: 0 2rem 2rem; }
 .form-container { background: var(--white); border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); padding: 2rem; margin-bottom: 2rem; border-top: 4px solid var(--gold); }
 .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; }
 .form-group { display: flex; flex-direction: column; }
+
 /* ⭐️ V 2.2: Added styles for checkboxes */
 .form-group-checkbox { display: flex; flex-direction: column; gap: 0.5rem; border: 1px solid #eee; border-radius: 8px; padding: 1rem; }
 .form-group-checkbox-label { font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.25rem; }
 .checkbox-option { display: flex; align-items: center; gap: 0.5rem; }
 .checkbox-option input { width: auto; margin-right: 0.5rem; }
 .checkbox-option label { margin-bottom: 0; font-weight: 400; }
-/* End V 2.2 styles */
+
+/* ⭐️ V 2.3: Styles for new elements (Date Diff & Form Actions) */
+#date-diff-display { font-weight: 700; transition: color 0.3s; }
+
 label { font-size: 0.875rem; font-weight: 500; color: #374151; margin-bottom: 0.5rem; }
 input, select { padding: 0.75rem; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 1rem; font-family: 'Sarabun', sans-serif; background-color: var(--white); }
 input[type="checkbox"] { padding: 0; height: 1.25rem; width: 1.25rem; }
@@ -93,11 +97,9 @@ a:hover { text-decoration: underline; }
 .details-grid p { 
     margin: 0; 
     font-size: 0.875rem; 
-
-    /* --- (เพิ่ม 3 บรรทัดนี้) --- */
-    overflow-wrap: break-word;  /* บังคับตัดคำที่ยาวมากๆ */
-    word-break: break-word;     /* (ใช้คู่กัน) */
-    min-width: 0;               /* บอกให้ Grid ยอมให้ช่องนี้หดได้ (สำคัญมาก!) */
+    overflow-wrap: break-word;
+    word-break: break-word;
+    min-width: 0;
 }
 .details-grid strong { color: #374151; }
 .search-container { margin-bottom: 1.5rem; display: flex; gap: 0.5rem; background-color: var(--white); padding: 1rem; border-radius: 8px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
