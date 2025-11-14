@@ -30,7 +30,6 @@ function showError(msg) {
     const el = document.getElementById('error');
     el.textContent = `ข้อผิดพลาด: ${msg}`;
     el.style.display = 'block';
-    // ⭐️ V 2.2: ใช้ .scrollIntoView() เพื่อให้แน่ใจว่าผู้ใช้เห็นข้อผิดพลาด
     el.scrollIntoView({ behavior: 'smooth', block: 'center' });
     setTimeout(() => el.style.display = 'none', 7000);
 }
@@ -39,14 +38,9 @@ function showError(msg) {
 // 4. Supabase/Data Functions
 // -----------------------------------------------------------------
 
-/**
- * ⭐️ V 2.2: (แก้ไข) อัปเดต Query ใน fetchProjects
- * เพื่อดึงข้อมูล "ชื่อผู้กรอก" ที่เพิ่มมาใหม่ (DesignOwner, BiddingOwner, PMOwner)
- */
 async function fetchProjects() {
     showLoading();
     
-    // ⭐️ V 2.3: อัปเดตการ Join ทั้งหมดให้ใช้ "ชื่อ Constraint"
     const { data, error } = await supabaseClient
         .from(config.PROJECT_TABLE)
         .select(`
@@ -62,7 +56,7 @@ async function fetchProjects() {
 
     if (error) {
         showError(`ไม่สามารถดึงข้อมูลโปรเจกต์ได้: ${error.message}`);
-        console.error(error); // เราจะยัง log error ไว้ เผื่อมีปัญหาอื่น
+        console.error(error);
         projects = [];
     } else {
         projects = data || [];
@@ -112,10 +106,11 @@ async function uploadFile(file, projectName) {
 }
 
 /**
- * ⭐️ V 2.2: (แก้ไข) อัปเดต handleSave
- * เพื่อรองรับการอ่านค่าจาก Checkbox และการตรวจสอบ (Validation)
+ * ⭐️ V 2.3: (แก้ไขครั้งใหญ่) อัปเดต handleSave
+ * - เพิ่ม parameter 'actionType' ('save', 'forward', 'complete')
+ * - แยกตรรกะ: 'save' (ไม่เปลี่ยนสถานะ), 'forward' (เปลี่ยนสถานะ)
  */
-async function handleSave(isCompletingProject = false) {
+async function handleSave(actionType = 'save') {
     const form = document.getElementById('formFields');
     const dataToUpdate = {};
     let hasError = false;
@@ -130,11 +125,10 @@ async function handleSave(isCompletingProject = false) {
 
         let value = null;
         
-        // ⭐️ V 2.2: (ฟีเจอร์ 1) เพิ่ม Logic การอ่านค่า Checkbox
         if (field.type === 'checkbox') {
             value = input.checked;
         } else if (field.type === 'file') {
-            // File logic อยู่ด้านล่าง
+            // File logic handled later
         } else if (field.type === 'select') {
             value = input.value ? (field.source ? parseInt(input.value) : input.value) : null;
         } else {
@@ -145,29 +139,35 @@ async function handleSave(isCompletingProject = false) {
             dataToUpdate[field.name] = value;
         }
         
-        // --- Validation ---
-        if (field.required && !input.value && (!editingProject || !editingProject[field.name])) {
-            showError(`กรุณากรอกข้อมูลในช่อง "${field.label.split('(')[0].trim()}"`);
+        // --- Validation (ตรวจสอบเฉพาะเมื่อกดส่งต่อ หรือ ปิดโครงการ) ---
+        // ถ้ากดแค่ "บันทึก" (save) อาจจะยังกรอกไม่ครบก็ได้
+        if ((actionType === 'forward' || actionType === 'complete') && field.required && !input.value && (!editingProject || !editingProject[field.name])) {
+            showError(`กรุณากรอกข้อมูลในช่อง "${field.label.split('(')[0].trim()}" ให้ครบถ้วนเพื่อดำเนินการต่อ`);
+            hasError = true;
+        }
+        // ถ้าเป็นโปรเจกต์ใหม่ ต้องกรอกชื่อโครงการเสมอ
+        if (isNewProject && field.name === 'projectName' && !input.value) {
+            showError(`กรุณากรอกชื่อโครงการ`);
             hasError = true;
         }
     });
 
-    // ⭐️ V 2.2: (ฟีเจอร์ 1) ตรวจสอบ Checkbox ของทีม Survey
-    if (currentRole === 'survey') {
-        const { workScopeDesign, workScopeBidding, workScopePM } = dataToUpdate;
-        if (!workScopeDesign && !workScopeBidding && !workScopePM) {
+    // ⭐️ V 2.4: ตรวจสอบ Checkbox ทีม Survey (รวม isBudgetEstimated เข้าไปในเงื่อนไข)
+    if (currentRole === 'survey' && actionType === 'forward') {
+        const { isBudgetEstimated, workScopeDesign, workScopeBidding, workScopePM } = dataToUpdate;
+        if (!isBudgetEstimated && !workScopeDesign && !workScopeBidding && !workScopePM) {
             showError('กรุณาเลือกขอบเขตงานอย่างน้อย 1 รายการ');
             hasError = true;
         }
     }
 
-    if (hasError && (isCompletingProject || isNewProject)) return;
+    if (hasError) return;
     
     showLoading();
     try {
         let projectData = isNewProject ? {} : { ...editingProject };
         
-        // ลบ object ที่ join มา ออกก่อนอัปเดต
+        // ลบ object ที่ join มา
         delete projectData.Location;
         delete projectData.Surveyor;
         delete projectData.ProjectManager;
@@ -195,38 +195,48 @@ async function handleSave(isCompletingProject = false) {
             }
         }
         
-        // --- Handle Status Transitions ---
+        // ⭐️ V 2.3: Status Transition Logic (แยกตาม Action)
+        // 1. ถ้าเป็นโปรเจกต์ใหม่ ให้สถานะเริ่มต้นเป็น role ปัจจุบัน (เช่น 'survey')
+        if (isNewProject) {
+             // ถ้าแอดมินสร้าง ให้เป็น design หรือตามที่เลือก (ในอนาคต) แต่ตอนนี้ default design
+             // ถ้า Survey สร้าง ให้เป็น 'survey' เพื่อให้เห็นในหน้าตัวเองก่อน
+            projectData.status = currentRole === 'admin' ? 'design' : currentRole;
+        }
+
+        // 2. จัดการการเปลี่ยนสถานะ
         if (currentRole !== 'admin') {
-            const currentStatus = projectData.status || 'design';
-            const requiredFieldsForRoleAreComplete = (role, pData) => {
-                return config.fieldsByTeam[role].filter(f => f.required).every(f => !!pData[f.name]);
-            };
+            const currentStatus = projectData.status;
             
-            if (currentRole === 'survey' && requiredFieldsForRoleAreComplete('survey', projectData)) {
-                projectData.status = 'design';
-            }
-            else if (currentStatus === 'design' && requiredFieldsForRoleAreComplete('design', projectData)) {
-                projectData.status = 'bidding';
-            } else if (currentStatus === 'bidding' && requiredFieldsForRoleAreComplete('bidding', projectData)) {
-                projectData.status = 'pm';
-            } else if (currentStatus === 'pm' && isCompletingProject) {
-                if (requiredFieldsForRoleAreComplete('pm', projectData)) {
-                    if (confirm('คุณกำลังจะปิดโครงการนี้ โครงการจะถูกล็อคและไม่สามารถแก้ไขได้อีก ยืนยันหรือไม่?')) {
-                        projectData.status = 'closed';
-                    } else {
-                        hideLoading(); return;
-                    }
-                } else {
-                    showError('กรุณากรอกข้อมูลที่จำเป็น (*) ให้ครบถ้วนก่อนปิดโครงการ');
-                    hideLoading(); return;
+            if (actionType === 'forward') {
+                // กด "ส่งต่อ" -> เลื่อนสถานะไปขั้นถัดไป
+                if (currentRole === 'survey') {
+                    if (confirm('ยืนยันการส่งต่อข้อมูลไปยังทีมออกแบบ?')) {
+                        projectData.status = 'design';
+                    } else { hideLoading(); return; }
+                } 
+                else if (currentRole === 'design') {
+                    if (confirm('ยืนยันการส่งต่อข้อมูลไปยังทีมประมูล?')) {
+                        projectData.status = 'bidding';
+                    } else { hideLoading(); return; }
+                } 
+                else if (currentRole === 'bidding') {
+                    if (confirm('ยืนยันการส่งต่อข้อมูลไปยังทีมบริหารโครงการ (PM)?')) {
+                        projectData.status = 'pm';
+                    } else { hideLoading(); return; }
                 }
+            } 
+            else if (actionType === 'complete') {
+                // กด "เสร็จสิ้นโครงการ" (PM)
+                if (confirm('คุณกำลังจะปิดโครงการนี้ โครงการจะถูกล็อคและไม่สามารถแก้ไขได้อีก ยืนยันหรือไม่?')) {
+                    projectData.status = 'closed';
+                } else { hideLoading(); return; }
             }
+            // กรณี actionType === 'save' -> ไม่ทำอะไรกับ status (รักษา status เดิมไว้)
         }
 
         // --- Save to Supabase ---
         let result;
         if (isNewProject) {
-            projectData.status = projectData.status || 'design';
             result = await supabaseClient.from(config.PROJECT_TABLE).insert([projectData]).select();
         } else {
             result = await supabaseClient.from(config.PROJECT_TABLE).update(projectData).eq('id', editingProject.id).select();
@@ -235,8 +245,12 @@ async function handleSave(isCompletingProject = false) {
         if (result.error) {
             showError(`การบันทึกข้อมูลล้มเหลว: ${result.error.message}`);
         } else {
+            // แจ้งเตือนเล็กน้อยถ้าเป็นการส่งต่อ
+            if (actionType === 'forward') {
+                alert('บันทึกและส่งต่อข้อมูลสำเร็จ!');
+            }
             toggleForm(null, true);
-            await fetchProjects(); // Re-fetch all data
+            await fetchProjects(); 
         }
 
     } catch (err) {
@@ -283,7 +297,6 @@ async function deleteProject(id) {
 // -----------------------------------------------------------------
 
 function renderUI() {
-    // ⭐️ V 2.5: (จุดที่แก้ไข) เปลี่ยนจาก querySelector เป็น getElementById
     const addBtnContainer = document.getElementById('addBtnContainer');
     
     addBtnContainer.style.display = (currentRole === 'admin' || currentRole === 'survey') ? 'block' : 'none';
@@ -294,16 +307,11 @@ function renderUI() {
     renderTable();
 }
 
-/**
- * ⭐️ V 2.2: (แก้ไข) อัปเดต renderForm
- * เพื่อรองรับการสร้าง 'checkbox' และ 'select' จาก 'options'
- */
 function renderForm() {
     const formFieldsEl = document.getElementById('formFields');
     const fields = config.fieldsByTeam[currentRole];
-    formFieldsEl.innerHTML = ''; // Clear
+    formFieldsEl.innerHTML = ''; 
 
-    // --- (แก้ปัญหา 1) แสดงชื่อ/สถานที่แบบ Read-only สำหรับทีมอื่นๆ ---
     if (editingProject && (currentRole === 'design' || currentRole === 'bidding' || currentRole === 'pm')) {
         formFieldsEl.innerHTML += `
             <div class="form-group">
@@ -317,17 +325,19 @@ function renderForm() {
                 <label>สถานที่</label>
                 <input type="text" value="${locationName}" readonly style="background:#eeeeee;">
             </div>`;
+        formFieldsEl.innerHTML += `
+            <div class="form-group">
+                <label>ระยะเวลาก่อสร้างตามแผน (วัน)</label>
+                <input type="text" value="${editingProject.plannedDuration || '-'}" readonly style="background:#eeeeee;">
+            </div>`;    
     }
 
-    // ⭐️ V 2.2: (ฟีเจอร์ 1) Logic สำหรับจัดกลุ่ม Checkbox
     let currentCheckboxGroup = null;
     let groupWrapper = null;
 
     fields.forEach(field => {
-        // --- (ฟีเจอร์ 1) Checkbox Grouping ---
         if (field.type === 'checkbox' && field.group) {
             if (field.group !== currentCheckboxGroup) {
-                // เริ่มกลุ่มใหม่
                 currentCheckboxGroup = field.group;
                 groupWrapper = document.createElement('div');
                 groupWrapper.className = 'form-group-checkbox';
@@ -340,26 +350,20 @@ function renderForm() {
                 formFieldsEl.appendChild(groupWrapper);
             }
         } else {
-            // ถ้าไม่ใช่ checkbox group ให้ปิด group
             groupWrapper = null;
             currentCheckboxGroup = null;
         }
 
-        // --- สร้าง Field ---
         let fieldHtml = '';
         const value = (editingProject && editingProject[field.name] != null) ? editingProject[field.name] : '';
 
         if (field.type === 'select') {
             fieldHtml = `<select id="${field.name}" name="${field.name}">
                             <option value="">--- เลือก${field.label.split('(')[0].trim()} ---</option>`;
-            
-            // ⭐️ V 2.2: (ฟีเจอร์ 1) สร้าง select จาก 'options' (ถ้ามี)
             if (field.options) {
                 field.options.forEach(opt => {
                     fieldHtml += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`;
                 });
-            
-            // สร้าง select จาก 'source' (แบบเดิม)
             } else if (field.source) {
                 const dataSource = (field.source === 'employees') ? allEmployees : allLocations;
                 dataSource.forEach(item => {
@@ -370,7 +374,6 @@ function renderForm() {
             }
             fieldHtml += `</select>`;
 
-        // ⭐️ V 2.2: (ฟีเจอร์ 1) สร้าง Checkbox
         } else if (field.type === 'checkbox') {
             const checked = (editingProject && editingProject[field.name]) ? 'checked' : '';
             const optionWrapper = document.createElement('div');
@@ -379,12 +382,11 @@ function renderForm() {
                 <input type="checkbox" id="${field.name}" name="${field.name}" ${checked}>
                 <label for="${field.name}">${field.label}</label>
             `;
-            // เพิ่มลงใน groupWrapper ถ้ามี, หรือสร้าง form-group ใหม่ถ้าไม่มี
             if (groupWrapper) {
                 groupWrapper.appendChild(optionWrapper);
-                return; // ข้ามการสร้าง form-group ปกติ
+                return;
             } else {
-                fieldHtml = optionWrapper.innerHTML; // สำหรับ checkbox เดี่ยว (เช่น ใน admin)
+                fieldHtml = optionWrapper.innerHTML;
             }
 
         } else if (field.type === 'file') {
@@ -397,7 +399,7 @@ function renderForm() {
                     </div>`;
             }
 
-        } else { // Text, Number, Date
+        } else { 
             const readonly = (field.name === 'projectName' && editingProject && currentRole !== 'admin' && currentRole !== 'survey') ? 'readonly style="background:#eeeeee;"' : '';
             fieldHtml = `<input type="${field.type}" id="${field.name}" name="${field.name}" value="${value}" ${readonly}>`;
         }
@@ -407,26 +409,62 @@ function renderForm() {
         group.innerHTML = `<label for="${field.name}">${field.label}${field.required ? ' *' : ''}</label>${fieldHtml}`;
         formFieldsEl.appendChild(group);
 
-        // ⭐️⭐️⭐️ [START] นี่คือโค้ดที่แก้ไขปัญหาไฟล์อัปโหลด ⭐️⭐️⭐️
-        // เพิ่ม Event Listener ทันทีหลังจากสร้าง HTML
         if (field.type === 'file') {
             const fileInput = group.querySelector(`#${field.name}`);
             if (fileInput) {
                 fileInput.addEventListener('change', (e) => {
                     if (e.target.files && e.target.files.length > 0) {
-                        // เก็บไฟล์ที่เลือกไว้ในตัวแปร fileInputs
                         fileInputs[field.name] = e.target.files[0];
-                        console.log(`ไฟล์ ${field.name} ถูกเลือก:`, fileInputs[field.name].name);
                     } else {
-                        // ถ้าผู้ใช้กดยกเลิก
                         delete fileInputs[field.name];
                     }
                 });
             }
         }
-        // ⭐️⭐️⭐️ [END] สิ้นสุดโค้ดที่แก้ไข ⭐️⭐️⭐️
 
     });
+
+    // ⭐️ V 2.3: ตรรกะคำนวณวัน (Date Calculation) สำหรับทีม Survey
+    // หมายเหตุ: ต้องมั่นใจว่าชื่อ field ใน config.js ตรงกับที่จะดักจับ (surveyStartDate, surveyEndDate)
+    if (currentRole === 'survey') {
+        const startInput = document.getElementById('surveyStartDate');
+        const endInput = document.getElementById('surveyEndDate');
+        
+        // สร้าง element สำหรับแสดงผลลัพธ์ ถ้ายังไม่มี
+        if (endInput && !document.getElementById('date-diff-display')) {
+            const displaySpan = document.createElement('div');
+            displaySpan.id = 'date-diff-display';
+            displaySpan.style.color = 'var(--blue)';
+            displaySpan.style.fontSize = '0.9rem';
+            displaySpan.style.marginTop = '0.5rem';
+            displaySpan.style.fontWeight = 'bold';
+            endInput.parentNode.appendChild(displaySpan);
+
+            const calculateDays = () => {
+                if (startInput.value && endInput.value) {
+                    const start = new Date(startInput.value);
+                    const end = new Date(endInput.value);
+                    const diffTime = end - start;
+                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                    
+                    if (diffDays >= 0) {
+                        displaySpan.textContent = `ระยะเวลารวม: ${diffDays} วัน`;
+                        displaySpan.style.color = 'var(--blue)';
+                    } else {
+                        displaySpan.textContent = `วันจบงานต้องอยู่หลังวันเริ่มงาน`;
+                        displaySpan.style.color = 'var(--red-dark)';
+                    }
+                } else {
+                    displaySpan.textContent = '';
+                }
+            };
+
+            startInput.addEventListener('change', calculateDays);
+            endInput.addEventListener('change', calculateDays);
+            // คำนวณทันทีถ้ามีค่าอยู่แล้ว (ตอน edit)
+            calculateDays();
+        }
+    }
 }
 
 
@@ -439,33 +477,20 @@ function renderTable() {
             ? projects.filter(p => p.projectName && p.projectName.toLowerCase().includes(lowerCaseSearchTerm))
             : projects;
     } else {
-         // ⭐️ V 2.2: (แก้ปัญหา 3) ทีม Survey จะเห็นเฉพาะโปรเจกต์ที่ตัวเองสร้าง
-         // (ส่วนนี้โค้ดของคุณมี else ซ้อนกันแปลกๆ ผมขออนุญาตจัดให้ใหม่นะครับ)
-         
          if (currentRole === 'survey') {
-             // Logic เดิมคือให้ survey เห็นเฉพาะ status 'survey'
-             // แต่ตอนนี้เราไม่มี status 'survey'
-             // ผมจะปรับเป็นให้ survey เห็น 'design' (งานที่ตัวเองเพิ่งส่งไป)
-             // หรือถ้าจะให้เห็นงานที่ตัวเองสร้างทั้งหมด (ทุก status) ก็ทำได้
-             // แต่ logic ที่ตรงกับ "งานของทีมสำรวจ" ที่สุด คือ "งานที่ต้องดำเนินการ" = 0
-             
-             // เอาตาม logic เดิมของทีมอื่น: ทีมอื่นจะเห็นเฉพาะ status ของตัวเอง
-             projectsToDisplay = projects.filter(p => p.status === currentRole);
-             
-             // *** หมายเหตุ: ถ้าคุณอยากให้ทีม Survey เห็น "ทุกโปรเจกต์" ที่มี status เป็น 'design' (เพิ่งสร้างเสร็จ)
-             // *** ให้แก้บรรทัดบนเป็น:
-             // projectsToDisplay = projects.filter(p => p.status === 'design');
-             
+             // ทีม Survey เห็นโปรเจกต์ที่สถานะเป็น 'survey' (ที่ตัวเองสร้างและยังไม่ส่งต่อ)
+             // หรือโปรเจกต์ที่ตัวเองเพิ่งส่งไป ('design') -- ในที่นี้เอาเฉพาะที่อยู่กับตัวเอง
+             projectsToDisplay = projects.filter(p => p.status === 'survey');
          } else {
-              projectsToDisplay = projects.filter(p => p.status === currentRole);
+             // ทีมอื่นเห็นงานที่ส่งมาถึงตัวเอง
+             projectsToDisplay = projects.filter(p => p.status === currentRole);
          }
     }
 
-    // ⭐️ V 2.4: (จุดที่แก้ไข) แก้ไขไวยากรณ์ของตัวแปร title ให้ถูกต้อง
     const title = currentRole === 'admin'
         ? `โครงการทั้งหมด (${projectsToDisplay.length})`
         : (currentRole === 'survey'
-            ? `งานของทีมสำรวจ` // <-- แก้ไขจุดที่ 1 (เอาข้อความออก)
+            ? `งานของทีมสำรวจ (ร่าง/รอส่งต่อ)`
             : `งานที่ต้องดำเนินการ (${projectsToDisplay.length})`);
             
     document.getElementById('table-title').textContent = title;
@@ -486,12 +511,6 @@ function renderTable() {
 }
 
 
-/**
- * ⭐️ V 2.2: (แก้ไข) อัปเดต renderAdminTable
- * เพิ่ม helper Geters และแสดงผลข้อมูลใหม่ใน Details Grid
- */
-
-// --- Geters สำหรับชื่อที่ Join มา ---
 const getEmployeeName = (empObj) => empObj ? `${empObj.FirstName} ${empObj.LastName || ''}`.trim() : '-';
 const getPM = (p) => getEmployeeName(p.ProjectManager);
 const getSurveyor = (p) => getEmployeeName(p.Surveyor);
@@ -523,14 +542,12 @@ function renderAdminTable(projectsToDisplay) {
             `;
         }
 
-        // ⭐️ V 2.2: (ฟีเจอร์ 1) สร้าง string สรุปขอบเขตงาน
         const workScopes = [
             project.workScopeDesign ? 'ออกแบบ' : null,
             project.workScopeBidding ? 'ประมูล' : null,
             project.workScopePM ? 'บริหารโครงการ' : null
         ].filter(Boolean).join(', ') || '-';
 
-        // ⭐️ V 2.2: (ฟีเจอร์ 1 & 2) เพิ่ม Field ใหม่ใน Details Grid
         html += `
             <tr class="project-summary-row" onclick="window.App.toggleDetails(${project.id})">
                 <td><strong>${project.projectName || '-'}</strong></td>
@@ -580,8 +597,6 @@ function renderAdminTable(projectsToDisplay) {
 
 function renderTeamTable(projectsToDisplay) {
     const tableContentEl = document.getElementById('tableContent');
-    // ⭐️ V 2.2: (ฟีเจอร์ 2) เพิ่มคอลัมน์ "ผู้ส่งเรื่อง" (Submitter)
-    // โดยจะแสดงผู้รับผิดชอบจาก "ทีมก่อนหน้า"
     
     let submitterHeader = "ผู้ส่งเรื่อง";
     if (currentRole === 'design') submitterHeader = 'ผู้สำรวจ';
@@ -608,7 +623,6 @@ function renderTeamTable(projectsToDisplay) {
 
         const isClosed = project.status === 'closed';
         
-        // ⭐️ V 2.2: (ฟีเจอร์ 2) หาชื่อผู้ส่งเรื่องตาม Role
         let submitterName = '-';
         if (currentRole === 'design') submitterName = getSurveyor(project);
         if (currentRole === 'bidding') submitterName = getDesignOwner(project);
@@ -635,7 +649,7 @@ function renderTeamTable(projectsToDisplay) {
 function changeRole(role) {
     currentRole = role;
     clearSearch();
-    toggleForm(null, true); // Close form on role change
+    toggleForm(null, true); 
     renderUI();
 }
 
@@ -649,13 +663,27 @@ function toggleForm(projectToEdit = null, forceClose = false) {
     }
     
     const form = document.getElementById('formContainer');
-    
-    // ⭐️ V 2.5: (จุดที่แก้ไข) เปลี่ยนจาก querySelector เป็น getElementById
     const addBtnContainer = document.getElementById('addBtnContainer');
-    
     const saveBtn = document.getElementById('saveBtn');
     const completeBtn = document.getElementById('completeBtn');
     
+    // ⭐️ V 2.3: หาหรือสร้างปุ่ม "ส่งต่อ" (Forward Button)
+    let forwardBtn = document.getElementById('forwardBtn');
+    if (!forwardBtn) {
+        // ถ้ายังไม่มีปุ่ม ให้สร้างใหม่และแทรกไว้ข้างๆ ปุ่ม save
+        forwardBtn = document.createElement('button');
+        forwardBtn.id = 'forwardBtn';
+        forwardBtn.className = 'btn btn-gold'; // ใช้ class เดียวกับปุ่มหลัก
+        forwardBtn.style.flex = '1';
+        forwardBtn.textContent = 'บันทึกและส่งต่อ';
+        forwardBtn.onclick = () => window.App.forwardProject();
+        
+        // แทรกปุ่ม Forward ก่อนปุ่ม Save (เพื่อให้ Save เป็นปุ่มรอง หรือตามดีไซน์)
+        // แต่ในที่นี้เราจะแทรก *หลัง* ปุ่ม Save (หรือแทนที่ถ้าต้องการ)
+        // เอาไว้ข้างๆ ปุ่ม Save
+        saveBtn.parentNode.insertBefore(forwardBtn, saveBtn.nextSibling);
+    }
+
     editingProject = projectToEdit ? { ...projectToEdit } : null;
     fileInputs = {};
 
@@ -665,6 +693,7 @@ function toggleForm(projectToEdit = null, forceClose = false) {
             addBtnContainer.style.display = (currentRole === 'admin' || currentRole === 'survey') ? 'block' : 'none';
         }
         completeBtn.style.display = 'none';
+        if(forwardBtn) forwardBtn.style.display = 'none'; 
         editingProject = null;
         return;
     }
@@ -673,15 +702,30 @@ function toggleForm(projectToEdit = null, forceClose = false) {
         document.getElementById('formTitle').textContent = projectToEdit ? `แก้ไขโครงการ: ${projectToEdit.projectName}` : 'เพิ่มโครงการใหม่';
         if(addBtnContainer) addBtnContainer.style.display = 'none';
         
-        if (currentRole === 'pm') {
-            saveBtn.innerHTML = 'บันทึก';
+        // ⭐️ V 2.3: Logic การแสดงปุ่มตาม Role
+        // Default: ซ่อนปุ่มพิเศษก่อน
+        completeBtn.style.display = 'none';
+        forwardBtn.style.display = 'none';
+        saveBtn.textContent = 'บันทึก (ยังไม่ส่ง)'; // เปลี่ยนข้อความให้ชัดเจน
+
+        if (currentRole === 'admin') {
+            // Admin: มีแค่บันทึก
+            saveBtn.textContent = 'บันทึก';
+            saveBtn.style.display = 'block';
+        } 
+        else if (currentRole === 'pm') {
+            // PM: มีบันทึก และ จบโครงการ
+            saveBtn.textContent = 'บันทึก';
             completeBtn.style.display = 'block';
-        } else {
-            saveBtn.innerHTML = (currentRole === 'admin' || currentRole === 'survey') ? 'บันทึก' : 'บันทึกและส่งต่อ';
-            completeBtn.style.display = 'none';
+        } 
+        else {
+            // Survey, Design, Bidding: มี บันทึก และ ส่งต่อ
+            saveBtn.style.display = 'block';
+            forwardBtn.style.display = 'block';
+            forwardBtn.textContent = 'บันทึกและส่งต่อ';
         }
         
-        renderForm(); // Re-render form content
+        renderForm(); 
         form.style.display = 'block';
         form.scrollIntoView({ behavior: 'smooth', block: 'start' });
     } else {
@@ -690,14 +734,15 @@ function toggleForm(projectToEdit = null, forceClose = false) {
         }
         form.style.display = 'none';
         completeBtn.style.display = 'none';
+        if(forwardBtn) forwardBtn.style.display = 'none';
     }
 }
 
 function removeFile(fieldName) {
     if (editingProject) {
         editingProject[fieldName] = null;
-        fileInputs[fieldName] = null; // Clear any staged file
-        renderForm(); // Re-render the form to show the change
+        fileInputs[fieldName] = null; 
+        renderForm(); 
     }
 }
 
@@ -731,12 +776,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideLoading();
 });
 
-// 8. Export functions to global window object (เพื่อให้ HTML onclicks ทำงาน)
-// ⭐️ V 2.2: เราจะรวมฟังก์ชันทั้งหมดไว้ใน Object เดียว
+// 8. Export functions
 window.App = {
     toggleForm,
-    saveProject: () => handleSave(false),
-    completeProject: () => handleSave(true),
+    saveProject: () => handleSave('save'),       // ปุ่มบันทึกธรรมดา
+    forwardProject: () => handleSave('forward'), // ปุ่มส่งต่อ
+    completeProject: () => handleSave('complete'),
     deleteProject,
     changeRole,
     toggleDetails,
