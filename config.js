@@ -59,7 +59,9 @@ export const fieldsByTeam = {
         { name: 'design_owner_id', label: 'ชื่อผู้กรอก', type: 'select', source: 'employees', required: true },
         { name: 'project_manager_id', label: 'ผู้บริหารโครงการ', type: 'select', source: 'employees', required: true },
         
-        { name: 'requirement', label: 'รายละเอียดความต้องการ (Requirement)', type: 'text' },
+        // ⭐️ แก้ไขตรงนี้: เปลี่ยน Requirement เป็นไฟล์ PDF
+        { name: 'requirementPDF', label: `รายละเอียดความต้องการ (Requirement) (.pdf)${fileWarning}`, type: 'file', accept: '.pdf' },
+        
         { name: 'initialDesignPDF', label: `อัปโหลดแบบขั้นต้น (.pdf)${fileWarning}`, type: 'file', accept: '.pdf' },
         { name: 'detailedDesignPDF', label: `อัปโหลดแบบรายละเอียด (.pdf)${fileWarning}`, type: 'file', accept: '.pdf' },
         { name: 'calculationPDF', label: `รายการคำนวณ (.pdf)${fileWarning}`, type: 'file', accept: '.pdf' },
@@ -68,7 +70,6 @@ export const fieldsByTeam = {
 
         { name: 'rvtModel', label: `อัปโหลดแบบก่อสร้างสามมิติ (.rvt)${fileWarning}`, type: 'file', accept: '.rvt' },
         { name: 'ifcModel', label: `อัปโหลดโมเดลสามมิติ (.ifc)${fileWarning}`, type: 'file', accept: '.ifc' }
-        // เอาแบบประมูลออกตามข้อ 1
     ],
     bidding: [
         { name: 'bidding_owner_id', label: 'ชื่อผู้กรอก', type: 'select', source: 'employees', required: true },

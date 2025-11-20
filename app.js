@@ -335,107 +335,184 @@ function renderUI() {
 function renderForm() {
     const formFieldsEl = document.getElementById('formFields');
     const fields = config.fieldsByTeam[currentRole];
-    formFieldsEl.innerHTML = ''; 
+    
+    // 1. เตรียม HTML สำหรับ Stepper (Timeline)
+    const steps = [
+        { key: 'survey', label: '1. สำรวจ' },
+        { key: 'design', label: '2. ออกแบบ' },
+        { key: 'bidding', label: '3. ประมูล' },
+        { key: 'pm', label: '4. บริหารโครงการ' },
+        { key: 'closed', label: '5. เสร็จสิ้น' }
+    ];
+    
+    // หา index ของ status ปัจจุบัน
+    let currentStatusKey = editingProject ? editingProject.status : (currentRole === 'admin' ? 'design' : currentRole);
+    // Map status ให้ตรงกับ key ของ stepper
+    if(currentStatusKey === 'completed') currentStatusKey = 'pm'; // ให้ PM ยัง active
+    
+    const stepIndex = steps.findIndex(s => s.key === currentStatusKey);
+    const activeIndex = stepIndex === -1 ? 0 : stepIndex;
 
+    let stepperHtml = `<div class="stepper-container">`;
+    steps.forEach((step, idx) => {
+        const isActive = idx <= activeIndex;
+        stepperHtml += `
+            <div class="step-item ${isActive ? 'active' : ''}">
+                <div class="step-circle">${idx + 1}</div>
+                <div class="step-label">${step.label}</div>
+            </div>
+        `;
+    });
+    stepperHtml += `</div>`;
+
+    // 2. เตรียม HTML สำหรับฟอร์ม (แยก 2 คอลัมน์)
+    let leftColHtml = '';  // สำหรับ Input ข้อมูล
+    let rightColHtml = ''; // สำหรับ Upload ไฟล์
+
+    // ส่วนแสดงข้อมูล Readonly (ถ้ามี)
     if (editingProject && (currentRole === 'design' || currentRole === 'bidding' || currentRole === 'pm')) {
-        formFieldsEl.innerHTML += `
+        leftColHtml += `
             <div class="form-group">
                 <label>ชื่อโครงการ</label>
-                <input type="text" value="${editingProject.projectName || ''}" readonly style="background:#eeeeee;">
+                <input type="text" value="${editingProject.projectName || ''}" readonly style="background:#eee; color:#555;">
             </div>`;
         
         const locationName = editingProject.Location ? editingProject.Location.site_name : (editingProject.location_id ? 'กำลังโหลด...' : '-');
-        formFieldsEl.innerHTML += `
+        leftColHtml += `
             <div class="form-group">
                 <label>สถานที่</label>
-                <input type="text" value="${locationName}" readonly style="background:#eeeeee;">
+                <input type="text" value="${locationName}" readonly style="background:#eee; color:#555;">
             </div>`;
-        formFieldsEl.innerHTML += `
-            <div class="form-group">
-                <label>ระยะเวลาก่อสร้างตามแผน (วัน)</label>
-                <input type="text" value="${editingProject.plannedDuration || '-'}" readonly style="background:#eeeeee;">
-            </div>`;    
     }
 
+    // วนลูปสร้าง Input ตาม Config
     let currentCheckboxGroup = null;
     let groupWrapper = null;
+    let checkboxHtmlBuffer = ''; // พัก HTML ของ checkbox ไว้ก่อน
 
     fields.forEach(field => {
-        if (field.type === 'checkbox' && field.group) {
-            if (field.group !== currentCheckboxGroup) {
-                currentCheckboxGroup = field.group;
-                groupWrapper = document.createElement('div');
-                groupWrapper.className = 'form-group-checkbox';
-                
-                const groupLabel = document.createElement('label');
-                groupLabel.className = 'form-group-checkbox-label';
-                groupLabel.textContent = 'ขอบเขตงาน (เลือกอย่างน้อย 1 รายการ) *';
-                groupWrapper.appendChild(groupLabel);
-                
-                formFieldsEl.appendChild(groupWrapper);
-            }
-        } else {
-            groupWrapper = null;
-            currentCheckboxGroup = null;
-        }
-
-        let fieldHtml = '';
         const value = (editingProject && editingProject[field.name] != null) ? editingProject[field.name] : '';
 
-        if (field.type === 'select') {
-            fieldHtml = `<select id="${field.name}" name="${field.name}">
-                            <option value="">--- เลือก${field.label.split('(')[0].trim()} ---</option>`;
-            if (field.options) {
-                field.options.forEach(opt => {
-                    fieldHtml += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`;
-                });
-            } else if (field.source) {
-                const dataSource = (field.source === 'employees') ? allEmployees : allLocations;
-                dataSource.forEach(item => {
-                    const id = item.EmployeeID || item.id;
-                    const name = item.site_name || `${item.FirstName} ${item.LastName || ''}`.trim();
-                    fieldHtml += `<option value="${id}" ${value == id ? 'selected' : ''}>${name}</option>`;
-                });
+        // --- จัดการ Checkbox Group ---
+        if (field.type === 'checkbox' && field.group) {
+            if (field.group !== currentCheckboxGroup) {
+                // ถ้าเริ่มกลุ่มใหม่ และมีกลุ่มเก่าค้างอยู่ ให้ปิดกลุ่มเก่า
+                if (currentCheckboxGroup !== null) {
+                     leftColHtml += `<div class="form-group-checkbox"><label style="margin-bottom:0.5rem; display:block;">ขอบเขตงาน *</label>${checkboxHtmlBuffer}</div>`;
+                     checkboxHtmlBuffer = '';
+                }
+                currentCheckboxGroup = field.group;
             }
-            fieldHtml += `</select>`;
-
-        } else if (field.type === 'checkbox') {
+            // สะสม HTML Checkbox
             const checked = (editingProject && editingProject[field.name]) ? 'checked' : '';
-            const optionWrapper = document.createElement('div');
-            optionWrapper.className = 'checkbox-option';
-            optionWrapper.innerHTML = `
-                <input type="checkbox" id="${field.name}" name="${field.name}" ${checked}>
-                <label for="${field.name}">${field.label}</label>
-            `;
-            if (groupWrapper) {
-                groupWrapper.appendChild(optionWrapper);
-                return;
-            } else {
-                fieldHtml = optionWrapper.innerHTML;
+            checkboxHtmlBuffer += `
+                <div class="checkbox-option">
+                    <label style="font-weight:400; cursor:pointer;">
+                        <input type="checkbox" id="${field.name}" name="${field.name}" ${checked}>
+                        ${field.label}
+                    </label>
+                </div>`;
+            return; // ข้ามไป loop ถัดไป (ยังไม่ render ลง leftCol)
+        } else {
+            // ถ้าไม่ใช่ checkbox group แต่มี buffer ค้างอยู่ ให้เท buffer ออกมาก่อน
+            if (currentCheckboxGroup !== null) {
+                leftColHtml += `<div class="form-group-checkbox"><label style="margin-bottom:0.5rem; display:block;">ขอบเขตงาน *</label>${checkboxHtmlBuffer}</div>`;
+                checkboxHtmlBuffer = '';
+                currentCheckboxGroup = null;
             }
-
-        } else if (field.type === 'file') {
-            fieldHtml = `<input type="file" id="${field.name}" name="${field.name}" accept="${field.accept || ''}">`;
-            if (editingProject && editingProject[field.name]) {
-                fieldHtml += `
-                    <div style="margin-top: 0.5rem;">
-                        <a href="${editingProject[field.name]}" target="_blank" class="file-link">ดูไฟล์ปัจจุบัน</a>
-                        <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">ลบไฟล์</button>
-                    </div>`;
-            }
-
-        } else { 
-            const readonly = (field.name === 'projectName' && editingProject && currentRole !== 'admin' && currentRole !== 'survey') ? 'readonly style="background:#eeeeee;"' : '';
-            fieldHtml = `<input type="${field.type}" id="${field.name}" name="${field.name}" value="${value}" ${readonly}>`;
         }
 
-        const group = document.createElement('div');
-        group.className = 'form-group';
-        group.innerHTML = `<label for="${field.name}">${field.label}${field.required ? ' *' : ''}</label>${fieldHtml}`;
-        formFieldsEl.appendChild(group);
-
+        // --- สร้าง Input HTML ปกติ ---
         if (field.type === 'file') {
-            const fileInput = group.querySelector(`#${field.name}`);
+            // ใส่ลงคอลัมน์ขวา (Right Column)
+            let fileDisplay = '';
+            if (editingProject && editingProject[field.name]) {
+                fileDisplay = `
+                    <a href="${editingProject[field.name]}" target="_blank" class="current-file-badge">📄 ดูไฟล์ปัจจุบัน</a>
+                    <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">❌ ลบ</button>
+                `;
+            }
+            rightColHtml += `
+                <div class="file-upload-card">
+                    <label for="${field.name}">${field.label}</label>
+                    <input type="file" id="${field.name}" name="${field.name}" accept="${field.accept || ''}">
+                    ${fileDisplay}
+                </div>
+            `;
+            
+            // Add listener later logic remains the same, but we handle rendering here.
+            // (Listener logic is handled globally below)
+
+        } else {
+            // ใส่ลงคอลัมน์ซ้าย (Left Column)
+            let inputHtml = '';
+            
+            if (field.type === 'select') {
+                inputHtml = `<select id="${field.name}" name="${field.name}">
+                                <option value="">--- เลือกรายการ ---</option>`;
+                if (field.options) {
+                    field.options.forEach(opt => inputHtml += `<option value="${opt}" ${value === opt ? 'selected' : ''}>${opt}</option>`);
+                } else if (field.source) {
+                     const dataSource = (field.source === 'employees') ? allEmployees : allLocations;
+                     dataSource.forEach(item => {
+                        const id = item.EmployeeID || item.id;
+                        const name = item.site_name || `${item.FirstName} ${item.LastName || ''}`.trim();
+                        inputHtml += `<option value="${id}" ${value == id ? 'selected' : ''}>${name}</option>`;
+                     });
+                }
+                inputHtml += `</select>`;
+            } else if (field.type === 'checkbox') { // Single Checkbox
+                 const checked = (editingProject && editingProject[field.name]) ? 'checked' : '';
+                 inputHtml = `
+                    <div style="display:flex; align-items:center; gap:10px; background:#f9f9f9; padding:10px; border-radius:8px;">
+                        <input type="checkbox" id="${field.name}" name="${field.name}" ${checked} style="width:auto;">
+                        <label for="${field.name}" style="margin:0; cursor:pointer;">${field.label}</label>
+                    </div>
+                 `;
+            } else { // Text, Number, Date
+                 const readonly = (field.name === 'projectName' && editingProject && currentRole !== 'admin' && currentRole !== 'survey') ? 'readonly style="background:#eee;"' : '';
+                 inputHtml = `<input type="${field.type}" id="${field.name}" name="${field.name}" value="${value}" ${readonly} placeholder="...">`;
+            }
+
+            if (field.type !== 'checkbox') {
+                leftColHtml += `
+                    <div class="form-group">
+                        <label for="${field.name}">${field.label} ${field.required ? '<span style="color:red">*</span>' : ''}</label>
+                        ${inputHtml}
+                    </div>
+                `;
+            } else {
+                leftColHtml += `<div class="form-group">${inputHtml}</div>`;
+            }
+        }
+    });
+
+    // เก็บตก Checkbox Group ท้ายสุด
+    if (currentCheckboxGroup !== null) {
+         leftColHtml += `<div class="form-group-checkbox"><label style="margin-bottom:0.5rem; display:block;">ขอบเขตงาน *</label>${checkboxHtmlBuffer}</div>`;
+    }
+
+    // 3. ประกอบร่าง HTML ทั้งหมด
+    formFieldsEl.innerHTML = `
+        ${stepperHtml}
+        <div class="form-layout-wrapper">
+            <div class="form-left-col">
+                <h3 style="font-size:1.1rem; color:var(--primary); margin-bottom:1rem; border-bottom:1px solid #eee; padding-bottom:0.5rem;">ข้อมูลโครงการ</h3>
+                ${leftColHtml}
+            </div>
+            <div class="form-right-col">
+                <h3 style="font-size:1.1rem; color:var(--primary); margin-bottom:1rem; border-bottom:1px solid #eee; padding-bottom:0.5rem;">เอกสารและไฟล์แนบ</h3>
+                <div class="file-upload-section">
+                    ${rightColHtml || '<div style="text-align:center; color:#999;">ไม่มีส่วนอัปโหลดไฟล์สำหรับขั้นตอนนี้</div>'}
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 4. Re-attach Event Listeners for Files
+    fields.forEach(field => {
+        if (field.type === 'file') {
+            const fileInput = document.getElementById(field.name);
             if (fileInput) {
                 fileInput.addEventListener('change', (e) => {
                     if (e.target.files && e.target.files.length > 0) {
@@ -446,91 +523,66 @@ function renderForm() {
                 });
             }
         }
-
     });
 
-    // ⭐️ V 2.3: ตรรกะคำนวณวัน (Date Calculation) สำหรับทีม Survey
-    // หมายเหตุ: ต้องมั่นใจว่าชื่อ field ใน config.js ตรงกับที่จะดักจับ (surveyStartDate, surveyEndDate)
+    // 5. Re-attach Date Logic (Logic เดิม)
     if (currentRole === 'survey') {
-        const startInput = document.getElementById('surveyStartDate');
-        const endInput = document.getElementById('surveyEndDate');
-        const durationInput = document.getElementById('plannedDuration');
+         const startInput = document.getElementById('surveyStartDate');
+         const endInput = document.getElementById('surveyEndDate');
+         const durationInput = document.getElementById('plannedDuration');
+         if (durationInput) {
+             durationInput.setAttribute('readonly', true);
+             durationInput.style.backgroundColor = '#eeeeee';
+         }
+         if (endInput && !document.getElementById('date-diff-display')) {
+             const displaySpan = document.createElement('div');
+             displaySpan.id = 'date-diff-display';
+             displaySpan.style.color = 'var(--primary)';
+             displaySpan.style.fontSize = '0.9rem';
+             displaySpan.style.marginTop = '0.5rem';
+             displaySpan.style.fontWeight = 'bold';
+             endInput.parentNode.appendChild(displaySpan);
 
-// ล็อกช่องระยะเวลาตามแผน ไม่ให้พิมพ์เอง
-        if (durationInput) {
-            durationInput.setAttribute('readonly', true);
-            durationInput.style.backgroundColor = '#eeeeee';
-            durationInput.placeholder = 'คำนวณอัตโนมัติ...';
-        }        
-        
-        // สร้าง element สำหรับแสดงผลลัพธ์ ถ้ายังไม่มี
-        if (endInput && !document.getElementById('date-diff-display')) {
-            const displaySpan = document.createElement('div');
-            displaySpan.id = 'date-diff-display';
-            displaySpan.style.color = 'var(--blue)';
-            displaySpan.style.fontSize = '0.9rem';
-            displaySpan.style.marginTop = '0.5rem';
-            displaySpan.style.fontWeight = 'bold';
-            endInput.parentNode.appendChild(displaySpan);
-
-            const calculateDays = () => {
-                if (startInput.value && endInput.value) {
-                    const start = new Date(startInput.value);
-                    const end = new Date(endInput.value);
-                    const diffTime = end - start;
-                    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
-                    
-                    if (diffDays >= 0) {
-                        // ✅ ใส่ค่าลงใน input อัตโนมัติ
-                        if (durationInput) durationInput.value = diffDays;
-                        
-                        // ล้างข้อความเตือน (หรือจะแสดงข้อความยืนยันก็ได้)
-                        displaySpan.textContent = ``; 
-                    } else {
-                        // กรณีเลือกวันผิด
-                        if (durationInput) durationInput.value = ''; // ล้างค่า
-                        displaySpan.textContent = `วันจบงานต้องอยู่หลังวันเริ่มงาน`;
-                        displaySpan.style.color = 'var(--red-dark)';
-                    }
-                } else {
-                    if (durationInput) durationInput.value = '';
-                    displaySpan.textContent = '';
-                }
-            };
-
-            startInput.addEventListener('change', calculateDays);
-            endInput.addEventListener('change', calculateDays);
-            // คำนวณทันทีถ้ามีค่าอยู่แล้ว (ตอน edit)
-            calculateDays();
-        }
+             const calculateDays = () => {
+                 if (startInput.value && endInput.value) {
+                     const start = new Date(startInput.value);
+                     const end = new Date(endInput.value);
+                     const diffTime = end - start;
+                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                     if (diffDays >= 0) {
+                         if (durationInput) durationInput.value = diffDays;
+                         displaySpan.textContent = ``; 
+                     } else {
+                         if (durationInput) durationInput.value = '';
+                         displaySpan.textContent = `วันจบงานต้องอยู่หลังวันเริ่มงาน`;
+                         displaySpan.style.color = '#c62828';
+                     }
+                 }
+             };
+             startInput.addEventListener('change', calculateDays);
+             endInput.addEventListener('change', calculateDays);
+             calculateDays();
+         }
     }
-    // ⭐️ เริ่มต้นส่วนที่เพิ่มใหม่: ทำให้ Dropdown ค้นหาได้ (Tom Select)
-    // โค้ดนี้จะเปลี่ยน Dropdown ธรรมดาให้ค้นหาได้
+
+    // 6. Re-attach Tom Select (Logic เดิม)
     const locationSelect = document.getElementById('location_id');
-    
-    // ตรวจสอบว่ามีช่องเลือกสถานที่หรือไม่ (กัน Error ในหน้าอื่น)
     if (locationSelect) {
         new TomSelect(locationSelect, {
-            create: false, // ห้ามสร้างตัวเลือกใหม่ (ให้เลือกจากที่มีเท่านั้น)
-            sortField: {
-                field: "text",
-                direction: "asc"
-            },
-            placeholder: 'พิมพ์ชื่อสถานที่เพื่อค้นหา...', // ข้อความจางๆ บอกให้รู้ว่าพิมพ์ได้
+            create: false,
+            sortField: { field: "text", direction: "asc" },
+            placeholder: 'พิมพ์ชื่อสถานที่เพื่อค้นหา...',
         });
     }
-    
-    // ถ้าอยากให้ช่องรายชื่อพนักงานค้นหาได้ด้วย ก็เพิ่มส่วนนี้ (ถ้าไม่ต้องการก็ลบได้)
     const employeeSelects = document.querySelectorAll('select[id*="_id"]');
     employeeSelects.forEach(select => {
-        if(select.id !== 'location_id') { // ข้าม location เพราะทำไปแล้ว
+        if(select.id !== 'location_id') {
              new TomSelect(select, {
                 create: false,
                 placeholder: 'พิมพ์ชื่อเพื่อค้นหา...',
             });
         }
     });
-    // ⭐️ จบส่วนที่เพิ่มใหม่
 }
 
 
@@ -648,6 +700,7 @@ function renderAdminTable(projectsToDisplay) {
                         
                         <div style="grid-column: 1 / -1; border-top: 1px solid #eee; padding-top: 0.5rem; margin-top: 0.5rem;">
                             <strong>ไฟล์ทีมออกแบบ:</strong><br>
+                            ${project.requirementPDF ? `<a href="${project.requirementPDF}" target="_blank" class="file-link">Requirement</a>` : ''}
                             ${project.initialDesignPDF ? `<a href="${project.initialDesignPDF}" target="_blank" class="file-link">แบบขั้นต้น</a>` : ''}
                             ${project.detailedDesignPDF ? `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>` : ''}
                             ${project.calculationPDF ? `<a href="${project.calculationPDF}" target="_blank" class="file-link">รายการคำนวณ</a>` : ''}
@@ -710,7 +763,7 @@ function renderTeamTable(projectsToDisplay) {
              if (project.weeklyReportPDF) fileLinks += `<a href="${project.weeklyReportPDF}" target="_blank" class="file-link">รายงานประชุม</a>`;
              if (project.weeklySiteImagesPDF) fileLinks += `<a href="${project.weeklySiteImagesPDF}" target="_blank" class="file-link">รูปหน้างาน</a>`;
         }
-
+        if (project.requirementPDF) fileLinks += `<a href="${project.requirementPDF}" target="_blank" class="file-link">Requirement</a>`;
         if (project.biddingPDF) fileLinks += `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>`;
         if (project.detailedDesignPDF) fileLinks += `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>`;
         if (project.torPDF) fileLinks += `<a href="${project.torPDF}" target="_blank" class="file-link">TOR</a>`;
