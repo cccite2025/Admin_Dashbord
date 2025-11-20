@@ -70,14 +70,39 @@ async function loadDropdownData() {
     try {
         const [employeeRes, locationRes] = await Promise.all([
             supabaseClient.from(config.EMPLOYEE_TABLE).select('EmployeeID, FirstName, LastName'),
-            supabaseClient.from(config.LOCATION_TABLE).select('id, site_name')
+            supabaseClient.from(config.LOCATION_TABLE).select('id, site_name, activity')
         ]);
 
         if (employeeRes.error) throw employeeRes.error;
         if (locationRes.error) throw locationRes.error;
 
         allEmployees = employeeRes.data.sort((a, b) => a.FirstName.localeCompare(b.FirstName));
-        allLocations = locationRes.data.sort((a, b) => a.site_name.localeCompare(b.site_name));
+        
+        // ⭐️ 2. เริ่มตรรกะจัดการชื่อซ้ำ (Smart Duplicate Handling)
+        const rawLocations = locationRes.data;
+        
+        // ขั้นตอน A: นับจำนวนว่าแต่ละชื่อปรากฏกี่ครั้ง
+        const nameCounts = {};
+        rawLocations.forEach(loc => {
+            const name = loc.site_name || '';
+            nameCounts[name] = (nameCounts[name] || 0) + 1;
+        });
+
+        // ขั้นตอน B: วนลูปปรับแต่งชื่อ
+        allLocations = rawLocations.map(loc => {
+            let displayName = loc.site_name;
+            
+            // เช็คเงื่อนไข: ถ้าชื่อนี้มีมากกว่า 1 รายการ (ซ้ำ) AND มีข้อมูล activity
+            if (nameCounts[loc.site_name] > 1 && loc.activity) {
+                displayName = `${loc.site_name} (${loc.activity})`;
+            }
+            
+            // ส่งค่ากลับ (ถ้าไม่ซ้ำก็ใช้ชื่อเดิม, ถ้าซ้ำก็ใช้ชื่อที่มีวงเล็บ)
+            return {
+                ...loc,
+                site_name: displayName // อัปเดตตัวแปรนี้เพื่อให้ Dropdown แสดงผลถูกต้องทันที
+            };
+        }).sort((a, b) => a.site_name.localeCompare(b.site_name)); // เรียงตามตัวอักษร
         
         console.log('โหลดข้อมูล Dropdowns สำเร็จ', { allEmployees, allLocations });
     } catch (error) {
@@ -429,6 +454,14 @@ function renderForm() {
     if (currentRole === 'survey') {
         const startInput = document.getElementById('surveyStartDate');
         const endInput = document.getElementById('surveyEndDate');
+        const durationInput = document.getElementById('plannedDuration');
+
+// ล็อกช่องระยะเวลาตามแผน ไม่ให้พิมพ์เอง
+        if (durationInput) {
+            durationInput.setAttribute('readonly', true);
+            durationInput.style.backgroundColor = '#eeeeee';
+            durationInput.placeholder = 'คำนวณอัตโนมัติ...';
+        }        
         
         // สร้าง element สำหรับแสดงผลลัพธ์ ถ้ายังไม่มี
         if (endInput && !document.getElementById('date-diff-display')) {
@@ -448,13 +481,19 @@ function renderForm() {
                     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
                     
                     if (diffDays >= 0) {
-                        displaySpan.textContent = `ระยะเวลารวม: ${diffDays} วัน`;
-                        displaySpan.style.color = 'var(--blue)';
+                        // ✅ ใส่ค่าลงใน input อัตโนมัติ
+                        if (durationInput) durationInput.value = diffDays;
+                        
+                        // ล้างข้อความเตือน (หรือจะแสดงข้อความยืนยันก็ได้)
+                        displaySpan.textContent = ``; 
                     } else {
+                        // กรณีเลือกวันผิด
+                        if (durationInput) durationInput.value = ''; // ล้างค่า
                         displaySpan.textContent = `วันจบงานต้องอยู่หลังวันเริ่มงาน`;
                         displaySpan.style.color = 'var(--red-dark)';
                     }
                 } else {
+                    if (durationInput) durationInput.value = '';
                     displaySpan.textContent = '';
                 }
             };
@@ -465,6 +504,33 @@ function renderForm() {
             calculateDays();
         }
     }
+    // ⭐️ เริ่มต้นส่วนที่เพิ่มใหม่: ทำให้ Dropdown ค้นหาได้ (Tom Select)
+    // โค้ดนี้จะเปลี่ยน Dropdown ธรรมดาให้ค้นหาได้
+    const locationSelect = document.getElementById('location_id');
+    
+    // ตรวจสอบว่ามีช่องเลือกสถานที่หรือไม่ (กัน Error ในหน้าอื่น)
+    if (locationSelect) {
+        new TomSelect(locationSelect, {
+            create: false, // ห้ามสร้างตัวเลือกใหม่ (ให้เลือกจากที่มีเท่านั้น)
+            sortField: {
+                field: "text",
+                direction: "asc"
+            },
+            placeholder: 'พิมพ์ชื่อสถานที่เพื่อค้นหา...', // ข้อความจางๆ บอกให้รู้ว่าพิมพ์ได้
+        });
+    }
+    
+    // ถ้าอยากให้ช่องรายชื่อพนักงานค้นหาได้ด้วย ก็เพิ่มส่วนนี้ (ถ้าไม่ต้องการก็ลบได้)
+    const employeeSelects = document.querySelectorAll('select[id*="_id"]');
+    employeeSelects.forEach(select => {
+        if(select.id !== 'location_id') { // ข้าม location เพราะทำไปแล้ว
+             new TomSelect(select, {
+                create: false,
+                placeholder: 'พิมพ์ชื่อเพื่อค้นหา...',
+            });
+        }
+    });
+    // ⭐️ จบส่วนที่เพิ่มใหม่
 }
 
 
@@ -560,7 +626,6 @@ function renderAdminTable(projectsToDisplay) {
             <tr class="project-details-row" id="details-${project.id}" style="display: none;">
                 <td colspan="4">
                     <div class="details-grid">
-                        <p><strong>ID:</strong> ${project.id}</p>
                         <p><strong>ผู้จัดการ:</strong> ${getPM(project)}</p>
                         <p><strong>สถานที่:</strong> ${getLocation(project)}</p>
                         <p><strong>งบประมาณ:</strong> ${project.budget ? project.budget.toLocaleString('th-TH') : '-'}</p>
@@ -574,7 +639,9 @@ function renderAdminTable(projectsToDisplay) {
                         <p><strong>ผู้กรอก (ประมูล):</strong> ${getBiddingOwner(project)}</p>
                         <p><strong>ผู้กรอก (PM):</strong> ${getPMOwner(project)}</p>
                         
-                        <p><strong>วันเริ่มงาน:</strong> ${project.startDate || '-'}</p>
+                        <p><strong>วันเริ่มงานก่อสร้าง:</strong> ${project.surveyStartDate || '-'}</p>
+                        <p><strong>วันจบงานก่อสร้าง:</strong> ${project.surveyEndDate || '-'}</p>
+
                         <p><strong>ระยะเวลาตามแผน:</strong> ${project.plannedDuration || '-'} วัน</p>
                         <p><strong>ระยะเวลาจริง:</strong> ${project.actualDuration || '-'} วัน</p>
                         <div><strong>ไฟล์:</strong>
@@ -607,6 +674,7 @@ function renderTeamTable(projectsToDisplay) {
         <th>ชื่อโครงการ</th>
         <th>${submitterHeader}</th>
         <th>ผู้จัดการ</th>
+        <th>งบประมาณ</th>
         <th>ไฟล์</th>
         <th>จัดการ</th>
     </tr></thead><tbody>`;
@@ -628,10 +696,13 @@ function renderTeamTable(projectsToDisplay) {
         if (currentRole === 'bidding') submitterName = getDesignOwner(project);
         if (currentRole === 'pm') submitterName = getBiddingOwner(project);
 
+        const budgetDisplay = project.budget ? project.budget.toLocaleString('th-TH') : '-';
+
         html += `<tr>
             <td><strong>${project.projectName || '-'}</strong></td>
             <td>${submitterName}</td>
             <td>${getPM(project)}</td>
+            <td>${budgetDisplay}</td>
             <td>${fileLinks || '-'}</td>
             <td class="action-buttons">
                 <button class="btn btn-simple-action" onclick="window.App.toggleForm(${JSON.stringify(project).replace(/"/g, '&quot;')})" ${isClosed ? 'disabled' : ''}>${isClosed ? 'ดู' : 'ดำเนินการ'}</button>
