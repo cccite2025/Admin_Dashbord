@@ -633,6 +633,7 @@ function renderAdminTable(projectsToDisplay) {
                         
                         <p><strong>ประเภทก่อสร้าง:</strong> ${project.constructionType || '-'}</p>
                         <p><strong>ขอบเขตงาน:</strong> ${workScopes}</p>
+                        <p><strong>Requirement:</strong> ${project.requirement || '-'}</p>
                         
                         <p><strong>ผู้กรอก (สำรวจ):</strong> ${getSurveyor(project)}</p>
                         <p><strong>ผู้กรอก (ออกแบบ):</strong> ${getDesignOwner(project)}</p>
@@ -644,13 +645,34 @@ function renderAdminTable(projectsToDisplay) {
 
                         <p><strong>ระยะเวลาตามแผน:</strong> ${project.plannedDuration || '-'} วัน</p>
                         <p><strong>ระยะเวลาจริง:</strong> ${project.actualDuration || '-'} วัน</p>
-                        <div><strong>ไฟล์:</strong>
-                            ${project.biddingPDF ? `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>` : ''}
-                            ${project.constructionPDF ? `<a href="${project.constructionPDF}" target="_blank" class="file-link">แบบก่อสร้าง</a>` : ''}
+                        
+                        <div style="grid-column: 1 / -1; border-top: 1px solid #eee; padding-top: 0.5rem; margin-top: 0.5rem;">
+                            <strong>ไฟล์ทีมออกแบบ:</strong><br>
+                            ${project.initialDesignPDF ? `<a href="${project.initialDesignPDF}" target="_blank" class="file-link">แบบขั้นต้น</a>` : ''}
+                            ${project.detailedDesignPDF ? `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>` : ''}
+                            ${project.calculationPDF ? `<a href="${project.calculationPDF}" target="_blank" class="file-link">รายการคำนวณ</a>` : ''}
+                            ${project.overlapPDF ? `<a href="${project.overlapPDF}" target="_blank" class="file-link">พื้นที่ทับซ้อน</a>` : ''}
+                            ${project.supportingDocsPDF ? `<a href="${project.supportingDocsPDF}" target="_blank" class="file-link">เอกสารประกอบ</a>` : ''}
                             ${project.rvtModel ? `<a href="${project.rvtModel}" target="_blank" class="file-link">โมเดล RVT</a>` : ''}
                             ${project.ifcModel ? `<a href="${project.ifcModel}" target="_blank" class="file-link">โมเดล IFC</a>` : ''}
+                            <br>
+                            <strong>ไฟล์ทีมประมูล:</strong><br>
+                            ${project.biddingPDF ? `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>` : ''}
+                            ${project.clarificationPDF ? `<a href="${project.clarificationPDF}" target="_blank" class="file-link">บันทึกชี้แจง</a>` : ''}
+                            ${project.torPDF ? `<a href="${project.torPDF}" target="_blank" class="file-link">TOR</a>` : ''}
+                            ${project.biddingDocsPDF ? `<a href="${project.biddingDocsPDF}" target="_blank" class="file-link">เอกสารประมูล</a>` : ''}
                             ${project.boqPDF ? `<a href="${project.boqPDF}" target="_blank" class="file-link">BOQ</a>` : ''}
-                            ${project.projectImage ? `<a href="${project.projectImage}" target="_blank" class="file-link">รูปภาพ</a>` : ''}
+                            ${project.projectImage ? `<a href="${project.projectImage}" target="_blank" class="file-link">รูปภาพ (3D)</a>` : ''}
+                            <br>
+                            <strong>เอกสารบริหารโครงการ (PM):</strong><br>
+                            ${project.permissionDocsPDF ? `<a href="${project.permissionDocsPDF}" target="_blank" class="file-link">ขออนุญาต</a>` : ''}
+                            ${project.weeklyReportPDF ? `<a href="${project.weeklyReportPDF}" target="_blank" class="file-link">รายงานประชุม</a>` : ''}
+                            ${project.approvalDocsPDF ? `<a href="${project.approvalDocsPDF}" target="_blank" class="file-link">ขออนุมัติ</a>` : ''}
+                            ${project.memoPDF ? `<a href="${project.memoPDF}" target="_blank" class="file-link">บันทึกต่างๆ</a>` : ''}
+                            ${project.changeOrderPDF ? `<a href="${project.changeOrderPDF}" target="_blank" class="file-link">งานเพิ่ม/ลด</a>` : ''}
+                            ${project.weeklySiteImagesPDF ? `<a href="${project.weeklySiteImagesPDF}" target="_blank" class="file-link">รูปหน้างาน</a>` : ''}
+                            ${project.defectChecklistPDF ? `<a href="${project.defectChecklistPDF}" target="_blank" class="file-link">ตรวจ Defect</a>` : ''}
+                            ${project.handoverDocsPDF ? `<a href="${project.handoverDocsPDF}" target="_blank" class="file-link">เอกสารส่งมอบ</a>` : ''}
                             ${project.asBuiltPDF ? `<a href="${project.asBuiltPDF}" target="_blank" class="file-link">As-Built</a>` : ''}
                         </div>
                     </div>
@@ -675,19 +697,24 @@ function renderTeamTable(projectsToDisplay) {
         <th>${submitterHeader}</th>
         <th>ผู้จัดการ</th>
         <th>งบประมาณ</th>
-        <th>ไฟล์</th>
+        <th>ไฟล์ล่าสุด</th>
         <th>จัดการ</th>
     </tr></thead><tbody>`;
     
     projectsToDisplay.forEach(project => {
         let fileLinks = '';
+        
+        // Logic การแสดงไฟล์ในตารางย่อ (แสดงเฉพาะไฟล์สำคัญ)
+        if (currentRole === 'pm' || currentRole === 'admin') {
+             // ถ้าเป็น PM ให้เห็นไฟล์งานก่อสร้างและรายงาน
+             if (project.weeklyReportPDF) fileLinks += `<a href="${project.weeklyReportPDF}" target="_blank" class="file-link">รายงานประชุม</a>`;
+             if (project.weeklySiteImagesPDF) fileLinks += `<a href="${project.weeklySiteImagesPDF}" target="_blank" class="file-link">รูปหน้างาน</a>`;
+        }
+
         if (project.biddingPDF) fileLinks += `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>`;
-        if (project.constructionPDF) fileLinks += `<a href="${project.constructionPDF}" target="_blank" class="file-link">แบบก่อสร้าง</a>`;
-        if (project.rvtModel) fileLinks += `<a href="${project.rvtModel}" target="_blank" class="file-link">โมเดล RVT</a>`;
-        if (project.ifcModel) fileLinks += `<a href="${project.ifcModel}" target="_blank" class="file-link">โมเดล IFC</a>`;
-        if (project.boqPDF) fileLinks += `<a href="${project.boqPDF}" target="_blank" class="file-link">BOQ</a>`;
-        if (project.projectImage) fileLinks += `<a href="${project.projectImage}" target="_blank" class="file-link">รูปภาพ</a>`;
-        if (project.asBuiltPDF) fileLinks += `<a href="${project.asBuiltPDF}" target="_blank" class="file-link">As-Built</a>`;
+        if (project.detailedDesignPDF) fileLinks += `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>`;
+        if (project.torPDF) fileLinks += `<a href="${project.torPDF}" target="_blank" class="file-link">TOR</a>`;
+        if (project.projectImage) fileLinks += `<a href="${project.projectImage}" target="_blank" class="file-link">รูป 3D</a>`;
 
         const isClosed = project.status === 'closed';
         
