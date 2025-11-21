@@ -27,11 +27,14 @@ function showLoading() { document.getElementById('loading').style.display = 'blo
 function hideLoading() { document.getElementById('loading').style.display = 'none'; }
 
 function showError(msg) {
-    const el = document.getElementById('error');
-    el.textContent = `ข้อผิดพลาด: ${msg}`;
-    el.style.display = 'block';
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    setTimeout(() => el.style.display = 'none', 7000);
+    // ใช้ SweetAlert2 แทน alert เดิม
+    Swal.fire({
+        icon: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        text: msg,
+        confirmButtonColor: '#d33',
+        confirmButtonText: 'ตกลง'
+    });
 }
 
 // -----------------------------------------------------------------
@@ -270,10 +273,30 @@ async function handleSave(actionType = 'save') {
         if (result.error) {
             showError(`การบันทึกข้อมูลล้มเหลว: ${result.error.message}`);
         } else {
-            // แจ้งเตือนเล็กน้อยถ้าเป็นการส่งต่อ
+            // แจ้งเตือนสำเร็จแบบสวยๆ (SweetAlert2)
             if (actionType === 'forward') {
-                alert('บันทึกและส่งต่อข้อมูลสำเร็จ!');
+                Swal.fire({
+                    icon: 'success',
+                    title: 'สำเร็จ!',
+                    text: 'บันทึกและส่งต่อข้อมูลเรียบร้อยแล้ว',
+                    confirmButtonColor: '#10b981',
+                    timer: 2000,
+                    showConfirmButton: false
+                });
+            } else {
+                // กรณีบันทึกธรรมดา ก็ให้ขึ้นเตือนนิดหน่อยว่าเสร็จแล้ว
+                 Swal.fire({
+                    icon: 'success',
+                    title: 'บันทึกแล้ว',
+                    text: 'ข้อมูลถูกบันทึกลงระบบแล้ว',
+                    toast: true,
+                    position: 'top-end',
+                    showConfirmButton: false,
+                    timer: 3000,
+                    timerProgressBar: true
+                });
             }
+            
             toggleForm(null, true);
             await fetchProjects(); 
         }
@@ -345,10 +368,8 @@ function renderForm() {
         { key: 'closed', label: '5. เสร็จสิ้น' }
     ];
     
-    // หา index ของ status ปัจจุบัน
     let currentStatusKey = editingProject ? editingProject.status : (currentRole === 'admin' ? 'design' : currentRole);
-    // Map status ให้ตรงกับ key ของ stepper
-    if(currentStatusKey === 'completed') currentStatusKey = 'pm'; // ให้ PM ยัง active
+    if(currentStatusKey === 'completed') currentStatusKey = 'pm';
     
     const stepIndex = steps.findIndex(s => s.key === currentStatusKey);
     const activeIndex = stepIndex === -1 ? 0 : stepIndex;
@@ -356,12 +377,7 @@ function renderForm() {
     let stepperHtml = `<div class="stepper-container">`;
     steps.forEach((step, idx) => {
         const isActive = idx <= activeIndex;
-        stepperHtml += `
-            <div class="step-item ${isActive ? 'active' : ''}">
-                <div class="step-circle">${idx + 1}</div>
-                <div class="step-label">${step.label}</div>
-            </div>
-        `;
+        stepperHtml += `<div class="step-item ${isActive ? 'active' : ''}"><div class="step-circle">${idx + 1}</div><div class="step-label">${step.label}</div></div>`;
     });
     stepperHtml += `</div>`;
 
@@ -428,8 +444,9 @@ function renderForm() {
             let fileDisplay = '';
             if (editingProject && editingProject[field.name]) {
                 fileDisplay = `
-                    <a href="${editingProject[field.name]}" target="_blank" class="current-file-badge">📄 ดูไฟล์ปัจจุบัน</a>
-                    <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">❌ ลบ</button>
+                    <div class="file-actions"> <a href="${editingProject[field.name]}" target="_blank" class="btn-view-file">📄 ดูไฟล์</a>
+                        <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">❌ ลบ</button>
+                    </div>
                 `;
             }
             rightColHtml += `
@@ -639,11 +656,36 @@ const getPMOwner = (p) => getEmployeeName(p.PMOwner);
 
 function renderAdminTable(projectsToDisplay) {
     const tableContentEl = document.getElementById('tableContent');
-    let html = `<table><thead><tr>
-        <th>ชื่อโครงการ</th><th>สถานะ</th><th>ผู้จัดการ</th><th>จัดการ</th>
-    </tr></thead><tbody>`;
+    
+    // 1. แยกข้อมูล Active / Closed
+    const activeProjects = projectsToDisplay.filter(p => p.status !== 'closed');
+    const closedProjects = projectsToDisplay.filter(p => p.status === 'closed');
 
-    projectsToDisplay.forEach(project => {
+    // ⭐️ ส่วนนี้ครับที่หายไป! (ส่วนแสดงกราฟและการ์ดตัวเลข)
+    let html = `
+        <div class="dashboard-summary">
+            <div class="chart-container">
+                <canvas id="projectChart"></canvas>
+            </div>
+            <div class="summary-cards">
+                <div class="card-stat total">
+                    <h3>ทั้งหมด</h3>
+                    <p>${projectsToDisplay.length}</p>
+                </div>
+                <div class="card-stat active">
+                    <h3>กำลังทำ</h3>
+                    <p>${activeProjects.length}</p>
+                </div>
+                <div class="card-stat done">
+                    <h3>เสร็จแล้ว</h3>
+                    <p>${closedProjects.length}</p>
+                </div>
+            </div>
+        </div>
+    `;
+
+    // 2. ฟังก์ชันย่อยสร้างแถวตาราง (ช่วยลดความซ้ำซ้อนของโค้ด)
+    const createRow = (project) => {
         const escapedProject = JSON.stringify(project).replace(/"/g, '&quot;');
         const isClosed = project.status === 'closed';
         const statusText = config.statusMap[project.status] || project.status || 'N/A';
@@ -656,7 +698,7 @@ function renderAdminTable(projectsToDisplay) {
             `;
         } else {
              actionButtons = `
-                <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})" disabled>ดู</button>
+                <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})">ดู</button>
             `;
         }
 
@@ -666,75 +708,54 @@ function renderAdminTable(projectsToDisplay) {
             project.workScopePM ? 'บริหารโครงการ' : null
         ].filter(Boolean).join(', ') || '-';
 
-        html += `
+        return `
             <tr class="project-summary-row" onclick="window.App.toggleDetails(${project.id})">
                 <td><strong>${project.projectName || '-'}</strong></td>
-                <td>${statusText}</td>
+                <td><span class="status-badge ${project.status}">${statusText}</span></td>
                 <td>${getPM(project)}</td>
-                <td class="action-buttons">
-                    ${actionButtons}
-                </td>
+                <td class="action-buttons">${actionButtons}</td>
             </tr>
             <tr class="project-details-row" id="details-${project.id}" style="display: none;">
                 <td colspan="4">
-                    <div class="details-grid">
-                        <p><strong>ผู้จัดการ:</strong> ${getPM(project)}</p>
+                    <div class="details-grid" style="padding:1rem;">
                         <p><strong>สถานที่:</strong> ${getLocation(project)}</p>
-                        <p><strong>งบประมาณ:</strong> ${project.budget ? project.budget.toLocaleString('th-TH') : '-'}</p>
-                        <p><strong>ราคาก่อสร้างจริง:</strong> ${project.actualCost ? project.actualCost.toLocaleString('th-TH') : '-'}</p>
-                        
-                        <p><strong>ประเภทก่อสร้าง:</strong> ${project.constructionType || '-'}</p>
                         <p><strong>ขอบเขตงาน:</strong> ${workScopes}</p>
-                        <p><strong>Requirement:</strong> ${project.requirement || '-'}</p>
+                        <p><strong>ผู้จัดการ:</strong> ${getPM(project)}</p>
+                        <p><strong>งบประมาณ:</strong> ${project.budget ? project.budget.toLocaleString('th-TH') : '-'}</p>
                         
-                        <p><strong>ผู้กรอก (สำรวจ):</strong> ${getSurveyor(project)}</p>
-                        <p><strong>ผู้กรอก (ออกแบบ):</strong> ${getDesignOwner(project)}</p>
-                        <p><strong>ผู้กรอก (ประมูล):</strong> ${getBiddingOwner(project)}</p>
-                        <p><strong>ผู้กรอก (PM):</strong> ${getPMOwner(project)}</p>
-                        
-                        <p><strong>วันเริ่มงานก่อสร้าง:</strong> ${project.surveyStartDate || '-'}</p>
-                        <p><strong>วันจบงานก่อสร้าง:</strong> ${project.surveyEndDate || '-'}</p>
-
-                        <p><strong>ระยะเวลาตามแผน:</strong> ${project.plannedDuration || '-'} วัน</p>
-                        <p><strong>ระยะเวลาจริง:</strong> ${project.actualDuration || '-'} วัน</p>
-                        
-                        <div style="grid-column: 1 / -1; border-top: 1px solid #eee; padding-top: 0.5rem; margin-top: 0.5rem;">
-                            <strong>ไฟล์ทีมออกแบบ:</strong><br>
-                            ${project.requirementPDF ? `<a href="${project.requirementPDF}" target="_blank" class="file-link">Requirement</a>` : ''}
-                            ${project.initialDesignPDF ? `<a href="${project.initialDesignPDF}" target="_blank" class="file-link">แบบขั้นต้น</a>` : ''}
-                            ${project.detailedDesignPDF ? `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>` : ''}
-                            ${project.calculationPDF ? `<a href="${project.calculationPDF}" target="_blank" class="file-link">รายการคำนวณ</a>` : ''}
-                            ${project.overlapPDF ? `<a href="${project.overlapPDF}" target="_blank" class="file-link">พื้นที่ทับซ้อน</a>` : ''}
-                            ${project.supportingDocsPDF ? `<a href="${project.supportingDocsPDF}" target="_blank" class="file-link">เอกสารประกอบ</a>` : ''}
-                            ${project.rvtModel ? `<a href="${project.rvtModel}" target="_blank" class="file-link">โมเดล RVT</a>` : ''}
-                            ${project.ifcModel ? `<a href="${project.ifcModel}" target="_blank" class="file-link">โมเดล IFC</a>` : ''}
-                            <br>
-                            <strong>ไฟล์ทีมประมูล:</strong><br>
-                            ${project.biddingPDF ? `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>` : ''}
-                            ${project.clarificationPDF ? `<a href="${project.clarificationPDF}" target="_blank" class="file-link">บันทึกชี้แจง</a>` : ''}
-                            ${project.torPDF ? `<a href="${project.torPDF}" target="_blank" class="file-link">TOR</a>` : ''}
-                            ${project.biddingDocsPDF ? `<a href="${project.biddingDocsPDF}" target="_blank" class="file-link">เอกสารประมูล</a>` : ''}
-                            ${project.boqPDF ? `<a href="${project.boqPDF}" target="_blank" class="file-link">BOQ</a>` : ''}
-                            ${project.projectImage ? `<a href="${project.projectImage}" target="_blank" class="file-link">รูปภาพ (3D)</a>` : ''}
-                            <br>
-                            <strong>เอกสารบริหารโครงการ (PM):</strong><br>
-                            ${project.permissionDocsPDF ? `<a href="${project.permissionDocsPDF}" target="_blank" class="file-link">ขออนุญาต</a>` : ''}
-                            ${project.weeklyReportPDF ? `<a href="${project.weeklyReportPDF}" target="_blank" class="file-link">รายงานประชุม</a>` : ''}
-                            ${project.approvalDocsPDF ? `<a href="${project.approvalDocsPDF}" target="_blank" class="file-link">ขออนุมัติ</a>` : ''}
-                            ${project.memoPDF ? `<a href="${project.memoPDF}" target="_blank" class="file-link">บันทึกต่างๆ</a>` : ''}
-                            ${project.changeOrderPDF ? `<a href="${project.changeOrderPDF}" target="_blank" class="file-link">งานเพิ่ม/ลด</a>` : ''}
-                            ${project.weeklySiteImagesPDF ? `<a href="${project.weeklySiteImagesPDF}" target="_blank" class="file-link">รูปหน้างาน</a>` : ''}
-                            ${project.defectChecklistPDF ? `<a href="${project.defectChecklistPDF}" target="_blank" class="file-link">ตรวจ Defect</a>` : ''}
-                            ${project.handoverDocsPDF ? `<a href="${project.handoverDocsPDF}" target="_blank" class="file-link">เอกสารส่งมอบ</a>` : ''}
-                            ${project.asBuiltPDF ? `<a href="${project.asBuiltPDF}" target="_blank" class="file-link">As-Built</a>` : ''}
+                        <div style="grid-column: 1 / -1; margin-top:10px; padding-top:10px; border-top:1px dashed #eee; color:#666; font-size:0.9em;">
+                            <i class="fas fa-info-circle"></i> คลิกปุ่ม "แก้ไข" หรือ "ดู" เพื่อดูรายละเอียดไฟล์แนบทั้งหมด
                         </div>
                     </div>
                 </td>
             </tr>
         `;
-    });
-    html += `</tbody></table>`;
+    };
+
+    // 3. สร้างตาราง (Active)
+    html += `<h3 style="color: var(--primary-dark); margin-bottom: 1rem;">โครงการที่กำลังดำเนินการ (${activeProjects.length})</h3>`;
+    if (activeProjects.length > 0) {
+        html += `<table><thead><tr><th>ชื่อโครงการ</th><th>สถานะ</th><th>ผู้จัดการ</th><th>จัดการ</th></tr></thead><tbody>`;
+        activeProjects.forEach(p => html += createRow(p));
+        html += `</tbody></table>`;
+    } else {
+        html += `<div style="text-align:center; padding:2rem; background:#f9f9f9; border-radius:10px;">ไม่มีโครงการที่กำลังดำเนินการ</div>`;
+    }
+
+    // 4. สร้างตาราง (Closed)
+    html += `<h3 style="color: #64748b; margin-top: 3rem; margin-bottom: 1rem;">โครงการที่เสร็จสิ้นแล้ว (${closedProjects.length})</h3>`;
+    if (closedProjects.length > 0) {
+        html += `<table style="opacity:0.8;"><thead><tr><th>ชื่อโครงการ</th><th>สถานะ</th><th>ผู้จัดการ</th><th>จัดการ</th></tr></thead><tbody>`;
+        closedProjects.forEach(p => html += createRow(p));
+        html += `</tbody></table>`;
+    } else {
+        html += `<div style="text-align:center; padding:2rem; background:#f9f9f9; border-radius:10px;">ไม่มีโครงการที่เสร็จสิ้น</div>`;
+    }
+
     tableContentEl.innerHTML = html;
+    
+    // เรียกกราฟให้วาดหลังจาก HTML ขึ้นแล้ว
+    setTimeout(renderDashboardChart, 100);
 }
 
 function renderTeamTable(projectsToDisplay) {
@@ -745,30 +766,16 @@ function renderTeamTable(projectsToDisplay) {
     if (currentRole === 'bidding') submitterHeader = 'ผู้ออกแบบ';
     if (currentRole === 'pm') submitterHeader = 'ผู้ประมูล';
 
+    // 1. ส่วนหัวตาราง (เอา <th>ไฟล์ล่าสุด</th> ออกแล้ว)
     let html = `<table><thead><tr>
         <th>ชื่อโครงการ</th>
         <th>${submitterHeader}</th>
         <th>ผู้จัดการ</th>
         <th>งบประมาณ</th>
-        <th>ไฟล์ล่าสุด</th>
         <th>จัดการ</th>
     </tr></thead><tbody>`;
     
     projectsToDisplay.forEach(project => {
-        let fileLinks = '';
-        
-        // Logic การแสดงไฟล์ในตารางย่อ (แสดงเฉพาะไฟล์สำคัญ)
-        if (currentRole === 'pm' || currentRole === 'admin') {
-             // ถ้าเป็น PM ให้เห็นไฟล์งานก่อสร้างและรายงาน
-             if (project.weeklyReportPDF) fileLinks += `<a href="${project.weeklyReportPDF}" target="_blank" class="file-link">รายงานประชุม</a>`;
-             if (project.weeklySiteImagesPDF) fileLinks += `<a href="${project.weeklySiteImagesPDF}" target="_blank" class="file-link">รูปหน้างาน</a>`;
-        }
-        if (project.requirementPDF) fileLinks += `<a href="${project.requirementPDF}" target="_blank" class="file-link">Requirement</a>`;
-        if (project.biddingPDF) fileLinks += `<a href="${project.biddingPDF}" target="_blank" class="file-link">แบบประมูล</a>`;
-        if (project.detailedDesignPDF) fileLinks += `<a href="${project.detailedDesignPDF}" target="_blank" class="file-link">แบบรายละเอียด</a>`;
-        if (project.torPDF) fileLinks += `<a href="${project.torPDF}" target="_blank" class="file-link">TOR</a>`;
-        if (project.projectImage) fileLinks += `<a href="${project.projectImage}" target="_blank" class="file-link">รูป 3D</a>`;
-
         const isClosed = project.status === 'closed';
         
         let submitterName = '-';
@@ -778,12 +785,12 @@ function renderTeamTable(projectsToDisplay) {
 
         const budgetDisplay = project.budget ? project.budget.toLocaleString('th-TH') : '-';
 
+        // 2. ส่วนข้อมูลในตาราง (เอา <td> ที่แสดงไฟล์ออกแล้ว)
         html += `<tr>
             <td><strong>${project.projectName || '-'}</strong></td>
             <td>${submitterName}</td>
             <td>${getPM(project)}</td>
             <td>${budgetDisplay}</td>
-            <td>${fileLinks || '-'}</td>
             <td class="action-buttons">
                 <button class="btn btn-simple-action" onclick="window.App.toggleForm(${JSON.stringify(project).replace(/"/g, '&quot;')})" ${isClosed ? 'disabled' : ''}>${isClosed ? 'ดู' : 'ดำเนินการ'}</button>
             </td>
@@ -927,6 +934,56 @@ document.addEventListener('DOMContentLoaded', async () => {
     hideLoading();
 });
 
+// --- ฟังก์ชันสร้างกราฟ (Chart.js) ---
+let statusChart = null; // ตัวแปรเก็บกราฟ
+
+function renderDashboardChart() {
+    const ctx = document.getElementById('projectChart');
+    if (!ctx) return; // ถ้าไม่มี Canvas ไม่ต้องทำ
+
+    // นับจำนวนสถานะ
+    const stats = {
+        survey: projects.filter(p => p.status === 'survey').length,
+        design: projects.filter(p => p.status === 'design').length,
+        bidding: projects.filter(p => p.status === 'bidding').length,
+        pm: projects.filter(p => p.status === 'pm').length,
+        closed: projects.filter(p => p.status === 'closed').length
+    };
+
+    const data = {
+        labels: ['รอสำรวจ', 'รอออกแบบ', 'รอประมูล', 'บริหารโครงการ', 'เสร็จสิ้น'],
+        datasets: [{
+            data: [stats.survey, stats.design, stats.bidding, stats.pm, stats.closed],
+            backgroundColor: [
+                '#d8b4fe', // ม่วง (Survey)
+                '#bae6fd', // ฟ้า (Design)
+                '#fed7aa', // ส้ม (Bidding)
+                '#bbf7d0', // เขียว (PM)
+                '#cbd5e1'  // เทา (Closed)
+            ],
+            borderWidth: 0,
+            hoverOffset: 10
+        }]
+    };
+
+    // ถ้ามีกราฟเดิมอยู่ ให้ทำลายก่อนสร้างใหม่
+    if (statusChart) statusChart.destroy();
+
+    statusChart = new Chart(ctx, {
+        type: 'doughnut', // กราฟวงกลมโดนัท
+        data: data,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { position: 'right', labels: { font: { family: 'Sarabun', size: 14 } } },
+                title: { display: true, text: 'ภาพรวมโครงการทั้งหมด', font: { family: 'Sarabun', size: 18, weight: 'bold' } }
+            },
+            layout: { padding: 20 }
+        }
+    });
+}
+
 // 8. Export functions
 window.App = {
     toggleForm,
@@ -940,3 +997,89 @@ window.App = {
     removeFile,
     clearSearch
 };
+// =========================================
+// PARTICLE NETWORK ANIMATION (JS)
+// =========================================
+(function() {
+    const canvas = document.getElementById('particleCanvas');
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    let particlesArray;
+
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    class Particle {
+        constructor() {
+            this.x = Math.random() * canvas.width;
+            this.y = Math.random() * canvas.height;
+            this.directionX = (Math.random() * 0.4) - 0.2; // เคลื่อนที่ช้าๆ
+            this.directionY = (Math.random() * 0.4) - 0.2;
+            this.size = (Math.random() * 2) + 1;
+            // สีจุด: เทาอมเขียวจางๆ เพื่อให้เข้ากับธีม Luxury
+            this.color = 'rgba(16, 185, 129, 0.3)'; 
+        }
+        draw() {
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2, false);
+            ctx.fillStyle = this.color;
+            ctx.fill();
+        }
+        update() {
+            if (this.x > canvas.width || this.x < 0) this.directionX = -this.directionX;
+            if (this.y > canvas.height || this.y < 0) this.directionY = -this.directionY;
+            this.x += this.directionX;
+            this.y += this.directionY;
+            this.draw();
+        }
+    }
+
+    function init() {
+        particlesArray = [];
+        // ลดจำนวนจุดลงหน่อย เพื่อไม่ให้รกตา (จอใหญ่จุดน้อยลง)
+        let numberOfParticles = (canvas.height * canvas.width) / 20000; 
+        for (let i = 0; i < numberOfParticles; i++) {
+            particlesArray.push(new Particle());
+        }
+    }
+
+    function connect() {
+        for (let a = 0; a < particlesArray.length; a++) {
+            for (let b = a; b < particlesArray.length; b++) {
+                let distance = ((particlesArray[a].x - particlesArray[b].x) * (particlesArray[a].x - particlesArray[b].x))
+                             + ((particlesArray[a].y - particlesArray[b].y) * (particlesArray[a].y - particlesArray[b].y));
+                
+                // ลากเส้นเมื่อใกล้กัน
+                if (distance < (canvas.width/7) * (canvas.height/7)) {
+                    let opacityValue = 1 - (distance / 20000);
+                    // เส้นสีเทาจางๆ (ไม่แย่งซีน)
+                    ctx.strokeStyle = 'rgba(100, 116, 139,' + (opacityValue * 0.2) + ')'; 
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(particlesArray[a].x, particlesArray[a].y);
+                    ctx.lineTo(particlesArray[b].x, particlesArray[b].y);
+                    ctx.stroke();
+                }
+            }
+        }
+    }
+
+    function animate() {
+        requestAnimationFrame(animate);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        for (let i = 0; i < particlesArray.length; i++) {
+            particlesArray[i].update();
+        }
+        connect();
+    }
+
+    window.addEventListener('resize', function() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        init();
+    });
+
+    init();
+    animate();
+})();

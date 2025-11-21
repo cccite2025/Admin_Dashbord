@@ -16,6 +16,7 @@ export const BUCKET_NAME = 'project-files';
 
 // 3. Application Mappings and Constants
 export const statusMap = {
+    survey: 'รอทีมสำรวจโครงการ', // <--- เพิ่มบรรทัดนี้เข้าไปครับ
     design: 'รอทีมออกแบบ',
     bidding: 'รอทีมประมูล',
     pm: 'รอทีมบริหารโครงการ',
