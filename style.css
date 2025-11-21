@@ -396,19 +396,7 @@ tbody tr td:last-child { border-top-right-radius: 16px; border-bottom-right-radi
 .step-label { font-size: 0.85rem; color: #94a3b8; font-weight: 600; transition: color 0.3s; }
 .step-item.active .step-label { color: var(--primary-dark); font-weight: 700; }
 
-/* Utilities */
-.loading { 
-    position: fixed; 
-    top: 50%; left: 50%; 
-    transform: translate(-50%, -50%); 
-    background: rgba(255,255,255,0.9);
-    padding: 2rem 4rem;
-    border-radius: 16px;
-    box-shadow: var(--shadow-float);
-    z-index: 1000;
-    font-weight: bold;
-    color: var(--gold-main);
-}
+
 .error { background: #fef2f2; color: #b91c1c; padding: 1rem; border-radius: 12px; border: 1px solid #fecaca; margin-bottom: 1.5rem; text-align: center;}
 /* --- 1. ปรับ Checkbox Group ให้เป็น 2 คอลัมน์และจัดบรรทัดตามขอ --- */
 /* --- 1. ปรับ Checkbox Group ให้เป็น Grid สวยงาม --- */
@@ -740,4 +728,42 @@ body {
 @keyframes breathe {
     0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.03; }
     50% { transform: translate(-50%, -50%) scale(1.05); opacity: 0.05; }
+}
+/* =========================================
+   3. Modern Loader (วงล้อหมุนติ้วๆ)
+   ========================================= */
+.loading {
+    /* บังคับตำแหน่งให้เต็มจอ */
+    position: fixed !important;
+    top: 0 !important; 
+    left: 0 !important; 
+    width: 100% !important; 
+    height: 100% !important;
+    
+    /* ล้างค่าเก่าที่ทำให้เบี้ยว */
+    transform: none !important; 
+    padding: 0 !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    
+    /* จัดกึ่งกลาง */
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(5px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 9999;
+    color: transparent; /* ซ่อนตัวหนังสือ */
+}
+
+/* ส่วนวงกลมหมุน (คงเดิม) */
+.loading::after {
+    content: '';
+    width: 50px;
+    height: 50px;
+    border: 5px solid #e2e8f0;
+    border-top-color: var(--primary);
+    border-bottom-color: var(--gold-main);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
 }
