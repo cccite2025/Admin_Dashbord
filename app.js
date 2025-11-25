@@ -443,9 +443,24 @@ function renderForm() {
             // ใส่ลงคอลัมน์ขวา (Right Column)
             let fileDisplay = '';
             if (editingProject && editingProject[field.name]) {
+                
+                // [ใหม่] ตรวจสอบว่าเป็นไฟล์ IFC หรือไม่ เพื่อเพิ่มปุ่มดู 3D
+                let view3DBtn = '';
+                // เช็คจากนามสกุลไฟล์ใน config (accept) หรือเช็คจากชื่อไฟล์จริงก็ได้
+                // ในที่นี้เช็คจาก Config accept='.ifc'
+                if (field.accept && field.accept.includes('.ifc')) {
+                     view3DBtn = `
+                        <button type="button" class="btn-view-file" style="background:#fef3c7; color:#b45309; border-color:#fde68a;" 
+                        onclick="window.open('ifc_viewer.html?modelUrl=${encodeURIComponent(editingProject[field.name])}&projectName=${encodeURIComponent(editingProject.projectName || '')}', '_blank')">
+                        📦 ดูโมเดล 3D
+                        </button>
+                     `;
+                }
+
                 fileDisplay = `
-                    <div class="file-actions"> <a href="${editingProject[field.name]}" target="_blank" class="btn-view-file">📄 ดูไฟล์</a>
-                        <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">❌ ลบ</button>
+                    <div class="file-actions"> 
+                        <a href="${editingProject[field.name]}" target="_blank" class="btn-view-file">📄 ดาวน์โหลด</a>
+                        ${view3DBtn} <button type="button" class="btn-delete-file" onclick="window.App.removeFile('${field.name}')">❌ ลบ</button>
                     </div>
                 `;
             }
@@ -457,9 +472,6 @@ function renderForm() {
                 </div>
             `;
             
-            // Add listener later logic remains the same, but we handle rendering here.
-            // (Listener logic is handled globally below)
-
         } else {
             // ใส่ลงคอลัมน์ซ้าย (Left Column)
             let inputHtml = '';
@@ -661,7 +673,7 @@ function renderAdminTable(projectsToDisplay) {
     const activeProjects = projectsToDisplay.filter(p => p.status !== 'closed');
     const closedProjects = projectsToDisplay.filter(p => p.status === 'closed');
 
-    // ⭐️ ส่วนนี้ครับที่หายไป! (ส่วนแสดงกราฟและการ์ดตัวเลข)
+    // ส่วนแสดง Dashboard (กราฟและตัวเลข) คงเดิม
     let html = `
         <div class="dashboard-summary">
             <div class="chart-container">
@@ -684,21 +696,35 @@ function renderAdminTable(projectsToDisplay) {
         </div>
     `;
 
-    // 2. ฟังก์ชันย่อยสร้างแถวตาราง (ช่วยลดความซ้ำซ้อนของโค้ด)
+    // 2. ฟังก์ชันย่อยสร้างแถวตาราง (อัปเดตเพิ่มปุ่ม 3D)
     const createRow = (project) => {
         const escapedProject = JSON.stringify(project).replace(/"/g, '&quot;');
         const isClosed = project.status === 'closed';
         const statusText = config.statusMap[project.status] || project.status || 'N/A';
         
+        // --- [NEW] สร้างปุ่ม 3D ถ้ามีไฟล์ ---
+        let view3DBtn = '';
+        if (project.ifcModel) {
+            view3DBtn = `
+                <button class="btn btn-simple-action" 
+                    style="background:#fffbeb; color:#b45309; border:1px solid #fcd34d; margin-right:4px;" 
+                    onclick="event.stopPropagation(); window.open('ifc_viewer.html?modelUrl=${encodeURIComponent(project.ifcModel)}&projectName=${encodeURIComponent(project.projectName)}', '_blank')"
+                    title="เปิดโมเดล 3D">
+                    <i class="fas fa-cube"></i> 3D
+                </button>
+            `;
+        }
+        // ----------------------------------
+
         let actionButtons = '';
         if (!isClosed) {
             actionButtons = `
-                <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})">แก้ไข</button>
+                ${view3DBtn} <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})">แก้ไข</button>
                 <button class="btn btn-simple-delete" onclick="event.stopPropagation(); window.App.deleteProject(${project.id})">ลบ</button>
             `;
         } else {
              actionButtons = `
-                <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})">ดู</button>
+                ${view3DBtn} <button class="btn btn-simple-action" onclick="event.stopPropagation(); window.App.toggleForm(${escapedProject})">ดู</button>
             `;
         }
 
@@ -713,7 +739,7 @@ function renderAdminTable(projectsToDisplay) {
                 <td><strong>${project.projectName || '-'}</strong></td>
                 <td><span class="status-badge ${project.status}">${statusText}</span></td>
                 <td>${getPM(project)}</td>
-                <td class="action-buttons">${actionButtons}</td>
+                <td class="action-buttons" style="white-space: nowrap;">${actionButtons}</td>
             </tr>
             <tr class="project-details-row" id="details-${project.id}" style="display: none;">
                 <td colspan="4">
@@ -753,8 +779,6 @@ function renderAdminTable(projectsToDisplay) {
     }
 
     tableContentEl.innerHTML = html;
-    
-    // เรียกกราฟให้วาดหลังจาก HTML ขึ้นแล้ว
     setTimeout(renderDashboardChart, 100);
 }
 

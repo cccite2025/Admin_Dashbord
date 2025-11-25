@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IFC Model Viewer (Demo)</title>
+    <link rel="icon" href="cpf-logo.png" type="image/png">
+    <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="style.css">
+
+    <style>
+        /* Override บางส่วนเพื่อให้เหมาะกับ Viewer */
+        body { margin: 0; overflow: hidden; background: #f0f2f5; }
+        #canvas-container { position: relative; width: 100vw; height: 100vh; }
+
+        /* Loading Screen สไตล์ Admin */
+        #loading {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(255,255,255,0.95);
+            backdrop-filter: blur(10px);
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            z-index: 1000; transition: opacity 0.5s ease;
+        }
+        .spinner-custom {
+            width: 60px; height: 60px;
+            border: 6px solid #e2e8f0;
+            border-top-color: var(--primary);
+            border-bottom-color: var(--gold-main);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-bottom: 1rem;
+        }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        
+        .progress-bar {
+            width: 300px; height: 8px; background: #e2e8f0; border-radius: 4px;
+            margin-top: 1rem; overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%; background: var(--gold-gradient); width: 0%; transition: width 0.3s;
+        }
+
+        /* Controls Panel แบบ Glassmorphism */
+        #controls-panel {
+            position: absolute; top: 20px; right: 20px; z-index: 10;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            padding: 1.2rem; border-radius: 16px;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1);
+            display: flex; flex-direction: column; gap: 1rem; width: 280px;
+        }
+
+        /* Info Panel แบบ Glass */
+        #info-panel {
+            position: absolute; top: 20px; left: 20px; z-index: 10;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            padding: 1rem 1.5rem; border-radius: 16px;
+            box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.1);
+        }
+
+        /* Axis Buttons Styling */
+        #axis-selector { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.5rem; }
+        .axis-btn {
+            padding: 8px; font-family: 'Sarabun', sans-serif; font-weight: 700;
+            border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; color: #64748b;
+            cursor: pointer; transition: all 0.2s;
+        }
+        .axis-btn:hover { background: #e2e8f0; color: var(--primary-dark); }
+        .axis-btn.active {
+            background: var(--primary); color: white; border-color: var(--primary);
+            box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+        }
+
+        /* Range Slider Styling */
+        input[type=range] {
+            width: 100%; -webkit-appearance: none; background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 20px; width: 20px; border-radius: 50%;
+            background: var(--gold-main); cursor: pointer; margin-top: -8px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.2);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 4px; cursor: pointer; background: #cbd5e1; border-radius: 2px;
+        }
+
+        #slider-value {
+            display: block; text-align: center; margin-top: 0.5rem; font-weight: 700;
+            color: var(--primary); background: var(--primary-soft); padding: 4px 8px; border-radius: 6px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        <div class="spinner-custom"></div>
+        <div style="text-align: center;">
+            <p id="status" style="color:var(--primary-dark); font-weight:600; font-size:1.1rem;">กำลังเตรียมโมเดลจำลอง...</p>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+
+        <div id="info-panel">
+            <h2 id="project-name" style="margin:0; color:var(--primary-dark); font-size:1.2rem;">Project Viewer</h2>
+            <p style="margin:5px 0 0 0; color:var(--text-muted); font-size:0.9rem;">
+                <i class="fas fa-cube"></i> 3D Model (Simulation)
+            </p>
+        </div>
+        
+        <div id="controls-panel">
+            <button id="toggle-section-btn" class="btn btn-gold" style="width:100%; justify-content:center;">
+                <i class="fas fa-cut"></i> เปิด Section
+            </button>
+            
+            <div id="section-controls" style="display: none; animation: fadeIn 0.3s ease;">
+                <label style="font-size:0.9rem; color:var(--text-muted); font-weight:600; margin-bottom:0.5rem; display:block;">เลือกแกนตัด (Axis)</label>
+                <div id="axis-selector">
+                    <button class="axis-btn active" data-axis="Y">Y</button>
+                    <button class="axis-btn" data-axis="X">X</button>
+                    <button class="axis-btn" data-axis="Z">Z</button>
+                </div>
+                
+                <div id="slider-container" style="margin-top:1.5rem;">
+                    <label id="slider-label" style="font-size:0.9rem; color:var(--text-muted); font-weight:600; margin-bottom:0.5rem; display:block;">ระดับการตัด</label>
+                    <input type="range" min="-1" max="22" value="22" step="0.1" id="section-slider">
+                    <span id="slider-value">22.0 m</span>
+                </div>
+            </div>
+
+            <div style="font-size:0.8rem; color:var(--text-muted); border-top:1px solid #e2e8f0; padding-top:1rem; margin-top:0.5rem;">
+                <i class="fas fa-mouse"></i> <b>ซ้าย:</b> หมุน | <b>ขวา:</b> เลื่อน | <b>ลูกกลิ้ง:</b> ซูม
+            </div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+                "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+            }
+        }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+        // --- DOM Elements ---
+        const canvasContainer = document.getElementById('canvas-container');
+        const canvas = document.getElementById('canvas');
+        const loadingDiv = document.getElementById('loading');
+        const statusText = document.getElementById('status');
+        const progressBar = document.getElementById('progress');
+        const toggleBtn = document.getElementById('toggle-section-btn');
+        const sectionControls = document.getElementById('section-controls');
+        const sectionSlider = document.getElementById('section-slider');
+        const sliderValue = document.getElementById('slider-value');
+        const sliderLabel = document.getElementById('slider-label');
+        const axisBtns = document.querySelectorAll('.axis-btn');
+        const projectNameEl = document.getElementById('project-name');
+
+        // URL Params
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('projectName')) {
+            projectNameEl.textContent = urlParams.get('projectName');
+        }
+
+        // --- 3D Variables ---
+        let scene, camera, renderer, controls;
+        let clippingPlanes;
+        let activeAxis = 'Y';
+        const FAR_AWAY = 1000;
+        const MODEL_BOUNDS = {
+            X: { min: -5, max: 5, normal: new THREE.Vector3(-1, 0, 0) },
+            Y: { min: -1, max: 22, normal: new THREE.Vector3(0, -1, 0) },
+            Z: { min: -4, max: 4, normal: new THREE.Vector3(0, 0, -1) }
+        };
+
+        // ⭐️ [NEW] ตัวแปรสำหรับจัดการการหมุนอัตโนมัติ
+        let isAutoRotating = true;
+        let idleTimer = null;
+        const IDLE_TIME = 30000; // 30 วินาที (หน่วยมิลลิวินาที)
+
+        function initScene() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f2f5);
+
+            camera = new THREE.PerspectiveCamera(75, canvasContainer.clientWidth / canvasContainer.clientHeight, 0.1, 1000);
+            camera.position.set(20, 20, 20);
+
+            clippingPlanes = [
+                new THREE.Plane(MODEL_BOUNDS.X.normal, FAR_AWAY),
+                new THREE.Plane(MODEL_BOUNDS.Y.normal, MODEL_BOUNDS.Y.max),
+                new THREE.Plane(MODEL_BOUNDS.Z.normal, FAR_AWAY)
+            ];
+            
+            renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+            renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.localClippingEnabled = false;
+
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.minDistance = 5;
+            controls.maxDistance = 100;
+            controls.target.set(0, 5, 0);
+            controls.update();
+
+            // แสง
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(10, 20, 5);
+            scene.add(directionalLight);
+            const grid = new THREE.GridHelper(100, 20, 0xcbd5e1, 0xe2e8f0);
+            scene.add(grid);
+            
+            // ⭐️ [NEW] เริ่มจับการกระทำของผู้ใช้ (คลิก/หมุน/แตะ)
+            setupUserInteractionListeners();
+
+            animate();
+            window.addEventListener('resize', onWindowResize);
+        }
+
+        // ⭐️ [NEW] ฟังก์ชันจัดการ Timer 30 วินาที
+        function setupUserInteractionListeners() {
+            const resetTimer = () => {
+                // 1. หยุดหมุนทันทีที่มีการขยับ
+                isAutoRotating = false;
+                
+                // 2. ล้าง Timer เก่าทิ้ง (ถ้ามี)
+                if (idleTimer) clearTimeout(idleTimer);
+
+                // 3. ตั้ง Timer ใหม่ 30 วินาที -> ถ้าครบเวลาให้กลับมาหมุน
+                idleTimer = setTimeout(() => {
+                    isAutoRotating = true;
+                }, IDLE_TIME);
+            };
+
+            // ดักจับ event ต่างๆ (คลิกเม้าส์, หมุนลูกกลิ้ง, ทัชสกรีน)
+            window.addEventListener('pointerdown', resetTimer); // คลิก
+            window.addEventListener('wheel', resetTimer);       // ลูกกลิ้ง
+            window.addEventListener('touchstart', resetTimer);  // จิ้มจอ
+            window.addEventListener('keydown', resetTimer);     // กดคีย์บอร์ด
+        }
+        
+        function onWindowResize() {
+            camera.aspect = canvasContainer.clientWidth / canvasContainer.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(canvasContainer.clientWidth, canvasContainer.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // ⭐️ [NEW] หมุนเฉพาะตอน isAutoRotating เป็น true และไม่ได้เปิด Section
+            if (isAutoRotating && !renderer.localClippingEnabled) {
+                scene.rotation.y += 0.002; // ความเร็วการหมุน
+            }
+
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function createTestModel() {
+            statusText.textContent = 'กำลังสร้างโมเดลจำลอง...';
+            progressBar.style.width = '60%';
+            
+            const group = new THREE.Group();
+            const clippingProperties = { clippingPlanes: clippingPlanes, side: THREE.DoubleSide };
+
+            // Building
+            const buildingMat = new THREE.MeshLambertMaterial({ color: 0x10b981, ...clippingProperties });
+            const building = new THREE.Mesh(new THREE.BoxGeometry(10, 15, 8), buildingMat);
+            building.position.y = 7.5;
+            group.add(building);
+
+            // Roof
+            const roofMat = new THREE.MeshLambertMaterial({ color: 0xd97706, ...clippingProperties });
+            const roof = new THREE.Mesh(new THREE.CylinderGeometry(0, 8, 5, 4), roofMat);
+            roof.position.y = 15 + 2.5;
+            roof.rotation.y = Math.PI / 4;
+            group.add(roof);
+
+            // Windows
+            const windowMat = new THREE.MeshBasicMaterial({ color: 0xe0f2fe, ...clippingProperties });
+            const windowGeom = new THREE.BoxGeometry(2, 2, 0.2);
+            [ {x: -2.5, y: 10, z: 4.1}, {x: 2.5, y: 10, z: 4.1}, {x: -2.5, y: 5, z: 4.1}, {x: 2.5, y: 5, z: 4.1} ].forEach(pos => {
+                const windowMesh = new THREE.Mesh(windowGeom, windowMat);
+                windowMesh.position.set(pos.x, pos.y, pos.z);
+                group.add(windowMesh);
+            });
+
+            // Door
+            const doorMat = new THREE.MeshBasicMaterial({ color: 0x78350f, ...clippingProperties });
+            const door = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 0.2), doorMat);
+            door.position.set(0, 2, 4.1);
+            group.add(door);
+
+            scene.add(group);
+            
+            progressBar.style.width = '100%';
+            statusText.textContent = 'พร้อมใช้งาน!';
+            setTimeout(() => {
+                loadingDiv.style.opacity = '0';
+                loadingDiv.addEventListener('transitionend', () => loadingDiv.style.display = 'none');
+            }, 500);
+        }
+
+        // --- UI Event Listeners ---
+        toggleBtn.addEventListener('click', () => {
+            const willBeActive = !renderer.localClippingEnabled;
+            renderer.localClippingEnabled = willBeActive;
+            
+            // ⭐️ ถ้าเปิด Section ให้หยุดหมุนทันที
+            if (willBeActive) isAutoRotating = false;
+            else isAutoRotating = true; // ปิด Section ให้หมุนต่อ
+
+            toggleBtn.innerHTML = willBeActive ? '<i class="fas fa-times"></i> ปิด Section' : '<i class="fas fa-cut"></i> เปิด Section';
+            if(willBeActive) {
+                toggleBtn.style.background = '#f1f5f9';
+                toggleBtn.style.color = '#64748b';
+            } else {
+                toggleBtn.style.background = ''; 
+                toggleBtn.style.color = '';
+            }
+            sectionControls.style.display = willBeActive ? 'block' : 'none';
+
+            if (!willBeActive) {
+                clippingPlanes.forEach(p => p.constant = FAR_AWAY);
+            } else {
+                const bounds = MODEL_BOUNDS[activeAxis];
+                const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+                clippingPlanes[planeIndex].constant = bounds.max;
+                sectionSlider.value = bounds.max;
+                sectionSlider.dispatchEvent(new Event('input'));
+            }
+        });
+        
+        axisBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                axisBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                clippingPlanes.forEach(p => p.constant = FAR_AWAY);
+                activeAxis = btn.dataset.axis;
+                const bounds = MODEL_BOUNDS[activeAxis];
+                const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+                sliderLabel.textContent = `ระดับการตัด (${activeAxis})`;
+                sectionSlider.min = bounds.min;
+                sectionSlider.max = bounds.max;
+                sectionSlider.value = bounds.max;
+                clippingPlanes[planeIndex].constant = bounds.max;
+                sliderValue.textContent = `${bounds.max.toFixed(1)} m`;
+            });
+        });
+
+        sectionSlider.addEventListener('input', (event) => {
+            const newValue = parseFloat(event.target.value);
+            const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+            clippingPlanes[planeIndex].constant = newValue;
+            sliderValue.textContent = `${newValue.toFixed(1)} m`;
+        });
+
+        // Init
+        progressBar.style.width = '30%';
+        setTimeout(() => {
+            initScene();
+            createTestModel();
+        }, 500);
+    </script>
+
+        // --- Event Listeners (Logic เดิม) ---
+        toggleBtn.addEventListener('click', () => {
+            const willBeActive = !renderer.localClippingEnabled;
+            renderer.localClippingEnabled = willBeActive;
+            
+            toggleBtn.innerHTML = willBeActive ? '<i class="fas fa-times"></i> ปิด Section' : '<i class="fas fa-cut"></i> เปิด Section';
+            // เปลี่ยนสีปุ่มเมื่อ Active
+            if(willBeActive) {
+                toggleBtn.style.background = '#f1f5f9';
+                toggleBtn.style.color = '#64748b';
+            } else {
+                toggleBtn.style.background = ''; // กลับไปใช้สี CSS เดิม
+                toggleBtn.style.color = '';
+            }
+
+            sectionControls.style.display = willBeActive ? 'block' : 'none';
+
+            if (!willBeActive) {
+                clippingPlanes.forEach(p => p.constant = FAR_AWAY);
+            } else {
+                const bounds = MODEL_BOUNDS[activeAxis];
+                const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+                clippingPlanes[planeIndex].constant = bounds.max;
+                sectionSlider.value = bounds.max;
+                sectionSlider.dispatchEvent(new Event('input'));
+            }
+        });
+        
+        axisBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                axisBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+
+                clippingPlanes.forEach(p => p.constant = FAR_AWAY);
+
+                activeAxis = btn.dataset.axis;
+                const bounds = MODEL_BOUNDS[activeAxis];
+                const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+                
+                sliderLabel.textContent = `ระดับการตัด (${activeAxis})`;
+                sectionSlider.min = bounds.min;
+                sectionSlider.max = bounds.max;
+                sectionSlider.value = bounds.max;
+                
+                clippingPlanes[planeIndex].constant = bounds.max;
+                sliderValue.textContent = `${bounds.max.toFixed(1)} m`;
+            });
+        });
+
+        sectionSlider.addEventListener('input', (event) => {
+            const newValue = parseFloat(event.target.value);
+            const planeIndex = ['X', 'Y', 'Z'].indexOf(activeAxis);
+            clippingPlanes[planeIndex].constant = newValue;
+            sliderValue.textContent = `${newValue.toFixed(1)} m`;
+        });
+
+        // --- Init ---
+        progressBar.style.width = '30%';
+        setTimeout(() => {
+            initScene();
+            createTestModel();
+        }, 500);
+    </script>
+</body>
+</html>
